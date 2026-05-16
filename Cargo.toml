@@ -1,0 +1,56 @@
+[package]
+name = "bat_img_rs"
+version = "0.0.1"
+edition = "2024"
+authors = ["John Liu"]
+description = "A fast, multithreaded batch image processing CLI tool"
+license = "MIT"
+readme = "README.md"
+
+[[bin]]
+name = "bat_img_rs"
+path = "src/main.rs"
+
+[dependencies]
+# CLI argument parsing
+clap = { version = "4", features = ["derive", "color"] }
+
+# Image processing (resize, border, format conversion)
+image = { version = "0.25", features = ["jpeg", "png", "webp", "tiff", "gif"] }
+
+# HEIC/HEIF decoding via libheif (requires libheif + libde265 system libraries)
+libheif-rs = "0.22"
+
+# EXIF metadata manipulation (strip GPS, read metadata)
+kamadak-exif = "0.5"
+#little-exif = "0.5"
+
+# Parallel processing
+rayon = "1.10"
+
+# Progress bar
+indicatif = { version = "0.17", features = ["rayon"] }
+
+# Colored terminal output
+colored = "2"
+
+# Glob pattern matching for input files
+glob = "0.3"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Walkdir for recursive directory traversal
+walkdir = "2"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+libheif-rs = { version = "2.7", features = ["image"] }
