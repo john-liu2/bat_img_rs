@@ -1,0 +1,117 @@
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"   # trigger on version tags: v1.0.0, v1.2.3, …
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: bat_img
+
+jobs:
+  # ── Build the Rust binary on each target platform ──────────────────────────
+  build-binary:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin      # Apple Silicon
+            artifact: bat_img-aarch64-apple-darwin
+
+          - os: macos-13                       # last Intel runner
+            target: x86_64-apple-darwin       # Intel Mac
+            artifact: bat_img-x86_64-apple-darwin
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: bat_img-x86_64-unknown-linux-gnu
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: bat_img-x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install libheif (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libheif
+          echo "PKG_CONFIG_PATH=$(brew --prefix libheif)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Install libheif (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libheif-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --profile release-small --target ${{ matrix.target }}
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release-small/${{ env.BINARY_NAME }} \
+             ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cp target/${{ matrix.target }}/release-small/${{ env.BINARY_NAME }}.exe `
+             ${{ matrix.artifact }}.exe
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}*   # matches both unix and .exe
+
+  # ── Assemble platform wheels and publish to PyPI ───────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build-binary
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # required for PyPI trusted publishing (OIDC)
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: pip install build wheel
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
+
+      - name: Build platform wheels
+        run: python python/build_wheels.py binaries/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
