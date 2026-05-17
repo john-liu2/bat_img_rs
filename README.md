@@ -1,6 +1,6 @@
 # bat_img_rs
 
-A fast, **multithreaded** batch image processor written in Rust.
+A fast, **multithreaded** batch image processing command line tool in Rust.
 
 ## Features
 
