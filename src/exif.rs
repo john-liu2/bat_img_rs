@@ -10,7 +10,7 @@ use anyhow::Result;
 // use crate::error::BatImgError;
 
 // ── JPEG markers ─────────────────────────────────────────────────────────────
-const SOI: [u8; 2] = [0xFF, 0xD8];        // Start of Image
+const SOI: [u8; 2] = [0xFF, 0xD8]; // Start of Image
 // const APP1_MARKER: [u8; 2] = [0xFF, 0xE1]; // APP1 (EXIF / XMP)
 const EXIF_HEADER: &[u8] = b"Exif\x00\x00";
 
@@ -266,18 +266,28 @@ fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
 
     let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
         b.get(o..o + 2).map(|s| {
-            if little_endian { u16::from_le_bytes([s[0], s[1]]) }
-            else { u16::from_be_bytes([s[0], s[1]]) }
+            if little_endian {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
         })
     };
     let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
         b.get(o..o + 4).map(|s| {
-            if little_endian { u32::from_le_bytes([s[0], s[1], s[2], s[3]]) }
-            else { u32::from_be_bytes([s[0], s[1], s[2], s[3]]) }
+            if little_endian {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
         })
     };
     let write_u32 = |b: &mut Vec<u8>, o: usize, v: u32| {
-        let bytes = if little_endian { v.to_le_bytes() } else { v.to_be_bytes() };
+        let bytes = if little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
         b[o..o + 4].copy_from_slice(&bytes);
     };
 

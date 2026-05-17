@@ -34,7 +34,6 @@ EXAMPLES:
 )]
 pub struct Args {
     // ── Input / Output ───────────────────────────────────────────────────────
-
     /// Input: file path, glob pattern, or directory (e.g. ./photos, "*.jpg", ./img/photo.png)
     #[arg(short, long, required = true, num_args = 1..)]
     pub input: Vec<String>,
@@ -50,7 +49,6 @@ pub struct Args {
     pub recursive: bool,
 
     // ── Metadata ─────────────────────────────────────────────────────────────
-
     /// Strip GPS location data from EXIF metadata
     #[arg(long, action = ArgAction::SetTrue)]
     pub strip_gps: bool,
@@ -60,7 +58,6 @@ pub struct Args {
     pub strip_all: bool,
 
     // ── Resize ───────────────────────────────────────────────────────────────
-
     /// Resize image. Format: WIDTHxHEIGHT (e.g. 1920x1080).
     /// Use 0 for auto (e.g. 1920x0 = fit width, 0x1080 = fit height).
     #[arg(short, long, value_name = "WxH")]
@@ -75,7 +72,6 @@ pub struct Args {
     pub no_upscale: bool,
 
     // ── Border ───────────────────────────────────────────────────────────────
-
     /// Add a border of N pixels on each side
     #[arg(long, value_name = "PIXELS")]
     pub border: Option<u32>,
@@ -85,7 +81,6 @@ pub struct Args {
     pub border_color: String,
 
     // ── Rotation / Flip ──────────────────────────────────────────────────────
-
     /// Rotate image clockwise by degrees (90, 180, 270)
     #[arg(long, value_name = "DEGREES")]
     pub rotate: Option<u32>,
@@ -103,7 +98,6 @@ pub struct Args {
     pub auto_orient: bool,
 
     // ── Color / Adjustments ──────────────────────────────────────────────────
-
     /// Brightness adjustment (-100 to +100)
     #[arg(long, value_name = "VALUE", allow_negative_numbers = true)]
     pub brightness: Option<i32>,
@@ -121,7 +115,6 @@ pub struct Args {
     pub grayscale: bool,
 
     // ── Output format / Quality ──────────────────────────────────────────────
-
     /// Output format (defaults to same as input)
     #[arg(short, long, value_enum)]
     pub format: Option<OutputFormat>,
@@ -141,7 +134,6 @@ pub struct Args {
     pub prefix: String,
 
     // ── Processing ───────────────────────────────────────────────────────────
-
     /// Number of threads to use (default: number of logical CPUs)
     #[arg(short, long, default_value_t = num_cpus())]
     pub threads: usize,

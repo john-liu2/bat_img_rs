@@ -43,8 +43,8 @@ impl ProcessingContext {
             (img, exif)
         } else {
             heic_meta = None;
-            let raw_bytes = std::fs::read(input)
-                .with_context(|| format!("Cannot read {}", input.display()))?;
+            let raw_bytes =
+                std::fs::read(input).with_context(|| format!("Cannot read {}", input.display()))?;
             let img = image::load_from_memory(&raw_bytes)
                 .with_context(|| format!("Cannot decode image: {}", input.display()))?;
             (img, Some(raw_bytes))
@@ -118,16 +118,12 @@ impl ProcessingContext {
             img = img.brighten(b);
         }
         if let Some(c) = p.contrast {
-            img = DynamicImage::ImageRgba8(
-                image::imageops::contrast(&img.to_rgba8(), c)
-            );
+            img = DynamicImage::ImageRgba8(image::imageops::contrast(&img.to_rgba8(), c));
         }
 
         // ── Sharpen ──────────────────────────────────────────────────────────
         if p.sharpen {
-            img = DynamicImage::ImageRgba8(
-                image::imageops::unsharpen(&img.to_rgba8(), 1.0, 10)
-            );
+            img = DynamicImage::ImageRgba8(image::imageops::unsharpen(&img.to_rgba8(), 1.0, 10));
         }
 
         // ── Rotate ───────────────────────────────────────────────────────────
@@ -167,7 +163,8 @@ impl ProcessingContext {
             // Disallow in-place when --format changes the extension, since that
             // would silently rename the file.  Require --output in that case.
             if let Some(fmt) = p.output_format {
-                let src_ext = self.input_path
+                let src_ext = self
+                    .input_path
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
@@ -181,7 +178,8 @@ impl ProcessingContext {
                     anyhow::bail!(
                         "In-place mode cannot change format from .{} to .{}. \
                          Please specify --output <DIR>.",
-                        src_ext, dst_ext
+                        src_ext,
+                        dst_ext
                     );
                 }
             }
@@ -189,7 +187,10 @@ impl ProcessingContext {
         }
 
         // ── Normal mode: write into output_dir ───────────────────────────────
-        let out_dir = p.output_dir.as_ref().expect("output_dir set when not in_place");
+        let out_dir = p
+            .output_dir
+            .as_ref()
+            .expect("output_dir set when not in_place");
         let stem = self
             .input_path
             .file_stem()

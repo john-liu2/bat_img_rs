@@ -54,17 +54,26 @@ mod tests {
 
     #[test]
     fn color_hex_six_digits() {
-        assert_eq!(parse_color("#ff8800").unwrap(), Rgba([0xFF, 0x88, 0x00, 255]));
+        assert_eq!(
+            parse_color("#ff8800").unwrap(),
+            Rgba([0xFF, 0x88, 0x00, 255])
+        );
     }
 
     #[test]
     fn color_hex_six_uppercase() {
-        assert_eq!(parse_color("#FF8800").unwrap(), Rgba([0xFF, 0x88, 0x00, 255]));
+        assert_eq!(
+            parse_color("#FF8800").unwrap(),
+            Rgba([0xFF, 0x88, 0x00, 255])
+        );
     }
 
     #[test]
     fn color_hex_eight_digits_with_alpha() {
-        assert_eq!(parse_color("#ff880080").unwrap(), Rgba([0xFF, 0x88, 0x00, 0x80]));
+        assert_eq!(
+            parse_color("#ff880080").unwrap(),
+            Rgba([0xFF, 0x88, 0x00, 0x80])
+        );
     }
 
     #[test]
@@ -86,9 +95,9 @@ mod tests {
 
     #[test]
     fn color_invalid_hex_length_errors() {
-        assert!(parse_color("#fff").is_err());     // 3 digits
-        assert!(parse_color("#ffff").is_err());    // 4 digits
-        assert!(parse_color("#fffff").is_err());   // 5 digits
+        assert!(parse_color("#fff").is_err()); // 3 digits
+        assert!(parse_color("#ffff").is_err()); // 4 digits
+        assert!(parse_color("#fffff").is_err()); // 5 digits
         assert!(parse_color("#fffffff").is_err()); // 7 digits
     }
 
