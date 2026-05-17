@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::error::BatImgError;
+// use crate::error::BatImgError;
 use crate::exif;
 use crate::heic;
 use crate::pipeline::Pipeline;

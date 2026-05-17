@@ -23,11 +23,11 @@ clap = { version = "4", features = ["derive", "color"] }
 image = { version = "0.25", features = ["jpeg", "png", "webp", "tiff", "gif"] }
 
 # HEIC/HEIF decoding via libheif (requires libheif + libde265 system libraries)
-libheif-rs = "0.22"
+#libheif-rs = "0.22"
+libheif-rs = { version = "2.7", features = ["image"] }
 
 # EXIF metadata manipulation (strip GPS, read metadata)
-kamadak-exif = "0.5"
-#little-exif = "0.5"
+kamadak-exif = "0.6"
 
 # Parallel processing
 rayon = "1.10"
@@ -36,14 +36,14 @@ rayon = "1.10"
 indicatif = { version = "0.17", features = ["rayon"] }
 
 # Colored terminal output
-colored = "2"
+colored = "3"
 
 # Glob pattern matching for input files
 glob = "0.3"
 
 # Error handling
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 
 # Walkdir for recursive directory traversal
 walkdir = "2"
@@ -57,7 +57,6 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
-libheif-rs = { version = "2.7", features = ["image"] }
 panic = "abort"     # removes unwinding machinery (~200 KB on some builds)
 
 # Extra size profile: `cargo build --profile release-small`
