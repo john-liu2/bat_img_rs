@@ -10,7 +10,10 @@ use std::path::PathBuf;
     long_about = None,
     after_help = "\
 EXAMPLES:
-  # Strip GPS from all JPEGs in a folder
+  # Strip GPS in-place (no --output = overwrite originals)
+  bat_img_rs -i ./photos --strip-gps
+
+  # Strip GPS from all JPEGs in a folder, save to ./output
   bat_img_rs -i ./photos/*.jpg --strip-gps -o ./output
 
   # Resize to max 1920px wide, add a white border, convert to WebP
@@ -24,6 +27,9 @@ EXAMPLES:
 
   # Sharpen + brightness/contrast adjustment
   bat_img_rs -i ./input --sharpen --brightness 10 --contrast 15 -o ./enhanced
+  
+  # Quiet mode (long flag only; -q is reserved for --quality)
+  bat_img_rs -i ./photos --strip-gps -o ./clean --quiet
 "
 )]
 pub struct Args {
@@ -33,9 +39,11 @@ pub struct Args {
     #[arg(short, long, required = true, num_args = 1..)]
     pub input: Vec<String>,
 
-    /// Output directory (will be created if it doesn't exist)
-    #[arg(short, long, default_value = "./bat_img_rs_out")]
-    pub output: PathBuf,
+    /// Output directory. When omitted, each input file is processed in-place
+    /// (the original is overwritten). A temp file + atomic rename is used so
+    /// the original is never corrupted on failure.
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 
     /// Recurse into subdirectories when input is a directory
     #[arg(short = 'R', long, action = ArgAction::SetTrue)]
@@ -118,9 +126,11 @@ pub struct Args {
     #[arg(short, long, value_enum)]
     pub format: Option<OutputFormat>,
 
-    /// JPEG/WebP output quality (1–100; default 90)
-    #[arg(short, long, default_value = "90", value_name = "1-100")]
-    pub quality: u8,
+    /// JPEG/WebP output quality (1–100). When omitted, HEIC files re-encode
+    /// using the encoder default (closest to original size). Required for
+    /// non-HEIC outputs; defaults to 90 if unset.
+    #[arg(short = 'q', long, value_name = "1-100")]
+    pub quality: Option<u8>,
 
     /// Filename suffix appended before extension (e.g. "_edited" → photo_edited.jpg)
     #[arg(long, default_value = "", value_name = "SUFFIX")]
@@ -141,7 +151,7 @@ pub struct Args {
     pub overwrite: bool,
 
     /// Suppress all output except errors
-    #[arg(short, long, action = ArgAction::SetTrue)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub quiet: bool,
 
     /// Dry-run: show what would be done without processing
@@ -178,6 +188,8 @@ pub enum OutputFormat {
     Tiff,
     Bmp,
     Gif,
+    Heic,
+    Heif,
 }
 
 impl OutputFormat {
@@ -189,6 +201,8 @@ impl OutputFormat {
             OutputFormat::Tiff => "tiff",
             OutputFormat::Bmp => "bmp",
             OutputFormat::Gif => "gif",
+            OutputFormat::Heic => "heic",
+            OutputFormat::Heif => "heif",
         }
     }
 }

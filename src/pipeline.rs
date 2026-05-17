@@ -66,7 +66,7 @@ pub fn collect_input_files(args: &Args) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-// ── Pipeline step definitions ────────────────────────
+// ── Pipeline step definitions ────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct ResizeSpec {
@@ -98,8 +98,11 @@ pub struct Pipeline {
     pub grayscale: bool,
 
     pub output_format: Option<OutputFormat>,
-    pub quality: u8,
-    pub output_dir: std::path::PathBuf,
+    /// None = preserve original (for HEIC); Some(n) = user-specified quality
+    pub quality: Option<u8>,
+    /// None = in-place mode (overwrite input files)
+    pub output_dir: Option<std::path::PathBuf>,
+    pub in_place: bool,
     pub prefix: String,
     pub suffix: String,
     pub overwrite: bool,
@@ -108,7 +111,7 @@ pub struct Pipeline {
 
 /// Parse and validate the CLI args into a reusable Pipeline.
 pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
-    // ── Resize ───────────────────────────────────────
+    // ── Resize ──────────────────────────────────────────────────────────────
     let resize = if let Some(spec) = &args.resize {
         let parts: Vec<&str> = spec.splitn(2, 'x').collect();
         if parts.len() != 2 {
@@ -128,23 +131,26 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
         None
     };
 
-    // ── Rotation ─────────────────────────────────────
+    // ── Rotation ────────────────────────────────────────────────────────────
     if let Some(rot) = args.rotate {
         if ![90, 180, 270].contains(&rot) {
             return Err(BatImgError::InvalidRotation(rot).into());
         }
     }
 
-    // ── Border color ─────────────────────────────────
+    // ── Border color ────────────────────────────────────────────────────────
     let border_rgba = if args.border.is_some() {
         Some(parse_color(&args.border_color)?)
     } else {
         None
     };
 
-    // ── Output dir ───────────────────────────────────
-    std::fs::create_dir_all(&args.output)
-        .with_context(|| format!("Cannot create output directory: {}", args.output.display()))?;
+    // ── Output dir ──────────────────────────────────────────────────────────
+    let in_place = args.output.is_none();
+    if let Some(ref out_dir) = args.output {
+        std::fs::create_dir_all(out_dir)
+            .with_context(|| format!("Cannot create output directory: {}", out_dir.display()))?;
+    }
 
     Ok(Pipeline {
         strip_gps: args.strip_gps || args.strip_all,
@@ -165,6 +171,7 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
         output_format: args.format,
         quality: args.quality,
         output_dir: args.output.clone(),
+        in_place,
         prefix: args.prefix.clone(),
         suffix: args.suffix.clone(),
         overwrite: args.overwrite,

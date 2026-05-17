@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cli::Args;
-// use error::BatImgError;
+use error::BatImgError;
 use pipeline::{collect_input_files, build_pipeline};
 use processor::ProcessingContext;
 
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     if !args.quiet {
         println!(
             "\n  {} {}\n",
-            "bat_img_rs".bold().cyan(),
+            "imgbatch".bold().cyan(),
             "— multithreaded batch image processor".dimmed()
         );
     }
@@ -77,17 +77,24 @@ fn main() -> Result<()> {
     files.par_iter().for_each(|input_path| {
         let ctx = ProcessingContext {
             input_path: input_path.clone(),
-            args: Arc::clone(&args),
             pipeline: Arc::clone(&pipeline),
         };
 
         match ctx.process() {
             Ok(output_path) => {
                 success_count.fetch_add(1, Ordering::Relaxed);
-                pb.set_message(format!(
-                    "{}",
-                    output_path.file_name().unwrap_or_default().to_string_lossy()
-                ));
+                if args.dry_run && !args.quiet {
+                    pb.set_message(format!(
+                        "[dry-run] {} → {}",
+                        input_path.display(),
+                        output_path.display()
+                    ));
+                } else {
+                    pb.set_message(format!(
+                        "{}",
+                        output_path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                }
             }
             Err(e) => {
                 failure_count.fetch_add(1, Ordering::Relaxed);
