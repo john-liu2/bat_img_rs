@@ -79,5 +79,5 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
 
-      - name: Build release
+      - name: Build release-small
         run: cargo build --release-small
