@@ -16,10 +16,4 @@ pub enum BatImgError {
 
     #[error("Invalid color '{0}'")]
     InvalidColor(String),
-
-    #[error("EXIF processing error: {0}")]
-    Exif(String),
-
-    #[error("Unsupported format: {0}")]
-    UnsupportedFormat(String),
 }
