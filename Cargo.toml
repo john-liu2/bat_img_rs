@@ -1,6 +1,6 @@
 [package]
 name = "bat_img_rs"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 authors = ["John Liu"]
 description = "A fast, multithreaded batch image processing CLI tool"
