@@ -8,8 +8,6 @@ The binary is a native [Rust](https://www.rust-lang.org/) executable
 delivery mechanism so you can install bat_img the same way you install
 any other command-line tool.
 
----
-
 ## Installation
 
 ```bash
@@ -27,8 +25,6 @@ Pre-built binaries are provided for:
 
 After installation, the `bat_img` command is available in your terminal.
 
----
-
 ## Quick start
 
 ```bash
@@ -44,8 +40,6 @@ bat_img -i ./iphone_photos -r 2048x0 -f webp -q 85 -o ./web
 # Strip ALL metadata, auto-orient, sharpen — 8 threads, recurse
 bat_img -i ./raw -R --strip-all --auto-orient --sharpen -t 8 -o ./export
 ```
-
----
 
 ## Features
 
@@ -150,8 +144,6 @@ bat_img -i ./iphone_photos -f jpeg -q 90 -r 1920x1080 -o ./jpegs
 bat_img -i ./photos -r 800x600 --strip-gps --dry-run
 ```
 
----
-
 ## HEIC support
 
 bat_img can read and write HEIC/HEIF files natively, including:
@@ -161,10 +153,7 @@ bat_img can read and write HEIC/HEIF files natively, including:
   and file size (unless `--quality` is specified)
 - Converting HEIC to any other supported format with `-f jpeg`, `-f webp`, etc.
 
----
+## License
 
-## Source & issues
-
-- **Source:** <https://github.com/john-liu2/bat_img_rs>
-- **Issues:** <https://github.com/john-liu2/bat_img_rs/issues>
-- **License:** MIT
+**bat_img** is distributed under MIT License. Please see details in
+[LICENSE](https://github.com/john-liu2/bat_img_rs/blob/main/LICENSE).
