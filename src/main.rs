@@ -27,7 +27,7 @@ fn main() -> Result<()> {
     if !args.quiet {
         println!(
             "\n  {} {}\n",
-            "imgbatch".bold().cyan(),
+            "bat_img_rs".bold().cyan(),
             "— multithreaded batch image processor".dimmed()
         );
     }

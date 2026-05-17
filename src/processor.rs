@@ -229,7 +229,7 @@ impl ProcessingContext {
         //    then atomically rename over the original.  This guarantees the
         //    original is never left in a half-written state if encoding fails.
         let (write_path, is_temp) = if p.in_place {
-            let tmp = path.with_extension(format!("{}.imgbatch_tmp", ext));
+            let tmp = path.with_extension(format!("{}.bat_img_tmp", ext));
             (tmp, true)
         } else {
             (path.clone(), false)
