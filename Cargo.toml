@@ -1,6 +1,6 @@
 [package]
 name = "bat_img_rs"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2024"
 authors = ["John Liu"]
 description = "A fast, multithreaded batch image processing CLI tool"
@@ -58,6 +58,17 @@ lto = true
 codegen-units = 1
 strip = true
 libheif-rs = { version = "2.7", features = ["image"] }
+panic = "abort"     # removes unwinding machinery (~200 KB on some builds)
+
+# Extra size profile: `cargo build --profile release-small`
+# Produces the smallest possible binary at some speed cost.
+[profile.release-small]
+inherits = "release"
+opt-level = "z"     # optimise for size (vs speed)
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
 [dev-dependencies]
 tempfile = "3"
