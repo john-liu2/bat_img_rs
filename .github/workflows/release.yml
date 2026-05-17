@@ -21,9 +21,9 @@ jobs:
             target: aarch64-apple-darwin      # Apple Silicon
             artifact: bat_img-aarch64-apple-darwin
 
-          - os: macos-13                       # last Intel runner
-            target: x86_64-apple-darwin       # Intel Mac
-            artifact: bat_img-x86_64-apple-darwin
+          # - os: macos-13                       # last Intel runner
+          #   target: x86_64-apple-darwin       # Intel Mac
+          #   artifact: bat_img-x86_64-apple-darwin
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -42,11 +42,31 @@ jobs:
           brew install libheif
           echo "PKG_CONFIG_PATH=$(brew --prefix libheif)/lib/pkgconfig" >> $GITHUB_ENV
 
-      - name: Install libheif (Linux)
+      - name: Install libheif (Linux — build from source)
         if: runner.os == 'Linux'
         run: |
+          # Ubuntu apt only ships libheif 1.17; libheif-sys 5.x requires >= 1.21.
+          # Build the required version from source.
           sudo apt-get update
-          sudo apt-get install -y libheif-dev pkg-config
+          sudo apt-get install -y \
+            cmake ninja-build pkg-config \
+            libde265-dev libx265-dev libaom-dev \
+            libpng-dev libjpeg-dev zlib1g-dev
+ 
+          LIBHEIF_VERSION=1.21.0
+          curl -fsSL \
+            https://github.com/strukturag/libheif/releases/download/v${LIBHEIF_VERSION}/libheif-${LIBHEIF_VERSION}.tar.gz \
+            | tar -xz
+          cmake -S libheif-${LIBHEIF_VERSION} -B libheif-build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DWITH_EXAMPLES=OFF \
+            -DWITH_TESTING=OFF
+          ninja -C libheif-build
+          sudo ninja -C libheif-build install
+          sudo ldconfig
+          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Install libheif (Windows via vcpkg)
         if: runner.os == 'Windows'
