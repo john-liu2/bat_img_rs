@@ -90,7 +90,7 @@ fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> 
         let seg_start = i;
 
         // Markers without length: SOI (0xD8), EOI (0xD9), RST0-7
-        if matches!(marker, 0xD8 | 0xD9 | 0xD0..=0xD7) {
+        if matches!(marker, 0xD0..=0xD9) {
             out.extend_from_slice(&bytes[i..i + 2]);
             i += 2;
             continue;
