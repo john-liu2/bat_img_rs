@@ -11,17 +11,51 @@ env:
 
 jobs:
   build:
-    runs-on: macos-latest
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # let all platforms run even if one fails
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (Apple Silicon)
+
+          - os: macos-13
+            label: macOS (Intel)
+
+          - os: ubuntu-latest
+            label: Linux (x86-64)
+
+          - os: windows-latest
+            label: Windows (x86-64)
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Install libheif
-        run: brew install libheif
+      # ── libheif: platform-specific install ──────────────────────────────────
 
-      - name: Set pkg-config path for libheif
-        run: echo "PKG_CONFIG_PATH=$(brew --prefix libheif)/lib/pkgconfig" >> $GITHUB_ENV
+      - name: Install libheif (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install libheif
+          echo "PKG_CONFIG_PATH=$(brew --prefix libheif)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Install libheif (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libheif-dev pkg-config
+
+      - name: Install libheif (Windows via vcpkg)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install libheif:x64-windows-static
+          echo "VCPKG_ROOT=C:/vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static" >> $env:GITHUB_ENV
+          echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+
+      # ── Rust toolchain + cache ───────────────────────────────────────────────
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -37,11 +71,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # ── Build + test ─────────────────────────────────────────────────────────
+
       - name: Build
         run: cargo build --verbose
 
       - name: Run tests
         run: cargo test --verbose
 
-      - name: Build release-small
-        run: cargo build --profile release-small
+      - name: Build release
+        run: cargo build --release-small

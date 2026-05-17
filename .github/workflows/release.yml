@@ -48,6 +48,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libheif-dev pkg-config
 
+      - name: Install libheif (Windows via vcpkg)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install libheif:x64-windows-static
+          echo "VCPKG_ROOT=C:/vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKGRS_TRIPLET=x64-windows-static" >> $env:GITHUB_ENV
+          echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
