@@ -3,7 +3,6 @@ use image::{DynamicImage, GenericImage, GenericImageView, ImageBuffer, Rgba, Rgb
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::cli::Args;
 use crate::error::BatImgError;
 use crate::exif;
 use crate::heic;
@@ -11,7 +10,6 @@ use crate::pipeline::Pipeline;
 
 pub struct ProcessingContext {
     pub input_path: PathBuf,
-    pub args: Arc<Args>,
     pub pipeline: Arc<Pipeline>,
 }
 
@@ -24,17 +22,10 @@ impl ProcessingContext {
         let output_path = self.output_path()?;
 
         if p.dry_run {
-            if !self.args.quiet {
-                println!(
-                    "  [dry-run] {} → {}",
-                    input.display(),
-                    output_path.display()
-                );
-            }
             return Ok(output_path);
         }
 
-        if !p.overwrite && output_path.exists() {
+        if !p.in_place && !p.overwrite && output_path.exists() {
             log::debug!("Skipping existing file: {}", output_path.display());
             return Ok(output_path);
         }
@@ -43,12 +34,15 @@ impl ProcessingContext {
         // For HEIC we skip the raw-bytes path and let libheif handle everything.
         let is_heic = heic::is_heic(input);
 
-        // ── Decode image + collect EXIF bytes ────────────────────────────────
+        // ── Decode image + collect EXIF bytes + HEIC encoding metadata ────────
+        let heic_meta;
         let (mut img, maybe_exif) = if is_heic {
-            // libheif decodes and returns embedded EXIF in one call.
-            heic::decode(input)
-                .with_context(|| format!("Cannot decode HEIC: {}", input.display()))?
+            let (img, exif, meta) = heic::decode(input)
+                .with_context(|| format!("Cannot decode HEIC: {}", input.display()))?;
+            heic_meta = Some(meta);
+            (img, exif)
         } else {
+            heic_meta = None;
             let raw_bytes = std::fs::read(input)
                 .with_context(|| format!("Cannot read {}", input.display()))?;
             let img = image::load_from_memory(&raw_bytes)
@@ -109,7 +103,13 @@ impl ProcessingContext {
 
             let skip = p.no_upscale && target_w > orig_w && target_h > orig_h;
             if !skip {
-                img = img.resize(target_w, target_h, p.filter);
+                // Both dimensions explicit → exact resize (may change aspect ratio).
+                // One dimension was 0 → aspect-ratio-preserving resize.
+                img = if spec.width != 0 && spec.height != 0 {
+                    img.resize_exact(target_w, target_h, p.filter)
+                } else {
+                    img.resize(target_w, target_h, p.filter)
+                };
             }
         }
 
@@ -154,13 +154,42 @@ impl ProcessingContext {
         }
 
         // ── Encode & save ────────────────────────────────────────────────────
-        self.save_image(&img, &output_path)?;
+        self.save_image(&img, &output_path, heic_meta.as_ref())?;
 
         Ok(output_path)
     }
 
     fn output_path(&self) -> Result<PathBuf> {
         let p = &self.pipeline;
+
+        // ── In-place mode: output = input path (same file, same format) ──────
+        if p.in_place {
+            // Disallow in-place when --format changes the extension, since that
+            // would silently rename the file.  Require --output in that case.
+            if let Some(fmt) = p.output_format {
+                let src_ext = self.input_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let dst_ext = fmt.extension();
+                // normalise jpeg/jpg
+                let same = src_ext == dst_ext
+                    || (src_ext == "jpg" && dst_ext == "jpeg")
+                    || (src_ext == "jpeg" && dst_ext == "jpg");
+                if !same {
+                    anyhow::bail!(
+                        "In-place mode cannot change format from .{} to .{}. \
+                         Please specify --output <DIR>.",
+                        src_ext, dst_ext
+                    );
+                }
+            }
+            return Ok(self.input_path.clone());
+        }
+
+        // ── Normal mode: write into output_dir ───────────────────────────────
+        let out_dir = p.output_dir.as_ref().expect("output_dir set when not in_place");
         let stem = self
             .input_path
             .file_stem()
@@ -170,28 +199,25 @@ impl ProcessingContext {
         let ext = if let Some(fmt) = p.output_format {
             fmt.extension().to_string()
         } else {
-            let src_ext = self
-                .input_path
+            self.input_path
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("jpg")
-                .to_lowercase();
-
-            // HEIC/HEIF cannot be re-encoded by this tool — default output to JPEG.
-            // The user can override with -f / --format.
-            match src_ext.as_str() {
-                "heic" | "heif" => "jpg".to_string(),
-                other => other.to_string(),
-            }
+                .to_lowercase()
         };
 
         let filename = format!("{}{}{}.{}", p.prefix, stem, p.suffix, ext);
-        Ok(p.output_dir.join(filename))
+        Ok(out_dir.join(filename))
     }
 
-    fn save_image(&self, img: &DynamicImage, path: &PathBuf) -> Result<()> {
+    fn save_image(
+        &self,
+        img: &DynamicImage,
+        path: &PathBuf,
+        heic_meta: Option<&heic::HeicMeta>,
+    ) -> Result<()> {
         let p = &self.pipeline;
-        let quality = p.quality;
+        let quality_or_default = p.quality.unwrap_or(90);
 
         let ext = path
             .extension()
@@ -199,18 +225,75 @@ impl ProcessingContext {
             .unwrap_or("jpg")
             .to_lowercase();
 
-        match ext.as_str() {
+        // ── When writing in-place, encode to a sibling temp file first,
+        //    then atomically rename over the original.  This guarantees the
+        //    original is never left in a half-written state if encoding fails.
+        let (write_path, is_temp) = if p.in_place {
+            let tmp = path.with_extension(format!("{}.bat_img_tmp", ext));
+            (tmp, true)
+        } else {
+            (path.clone(), false)
+        };
+
+        let encode_result = self.encode_to(&write_path, img, &ext, quality_or_default, heic_meta);
+
+        if let Err(e) = encode_result {
+            // Clean up the temp file if encoding failed
+            if is_temp {
+                let _ = std::fs::remove_file(&write_path);
+            }
+            return Err(e);
+        }
+
+        // Atomic rename: temp → original
+        if is_temp {
+            std::fs::rename(&write_path, path).with_context(|| {
+                format!(
+                    "Failed to rename temp file {} → {}",
+                    write_path.display(),
+                    path.display()
+                )
+            })?;
+        }
+
+        Ok(())
+    }
+
+    fn encode_to(
+        &self,
+        path: &PathBuf,
+        img: &DynamicImage,
+        ext: &str,
+        quality: u8,
+        heic_meta: Option<&heic::HeicMeta>,
+    ) -> Result<()> {
+        let p = &self.pipeline;
+
+        match ext {
+            "heic" | "heif" => {
+                use libheif_rs::CompressionFormat;
+                let compression = heic_meta
+                    .map(|m| m.compression)
+                    .unwrap_or(CompressionFormat::Hevc);
+                heic::encode(img, path, compression, p.quality)
+                    .with_context(|| format!("HEIC encode failed for {}", path.display()))?;
+            }
             "jpg" | "jpeg" => {
+                let rgb = img.to_rgb8();
                 let mut out = std::fs::File::create(path)
                     .with_context(|| format!("Cannot create {}", path.display()))?;
                 let mut encoder =
                     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
                 encoder
-                    .encode_image(img)
+                    .encode(
+                        rgb.as_raw(),
+                        rgb.width(),
+                        rgb.height(),
+                        image::ExtendedColorType::Rgb8,
+                    )
                     .with_context(|| format!("JPEG encode failed for {}", path.display()))?;
             }
             "webp" => {
-                // image crate WebP encoding (lossless for PNG source, lossy for JPEG)
                 img.save(path)
                     .with_context(|| format!("WebP save failed for {}", path.display()))?;
             }
@@ -224,10 +307,10 @@ impl ProcessingContext {
     }
 }
 
-// ── Helpers ────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Resolve target dimensions; 0 means "auto from aspect ratio".
-fn resolve_dimensions(orig_w: u32, orig_h: u32, target_w: u32, target_h: u32) -> (u32, u32) {
+pub fn resolve_dimensions(orig_w: u32, orig_h: u32, target_w: u32, target_h: u32) -> (u32, u32) {
     match (target_w, target_h) {
         (0, 0) => (orig_w, orig_h),
         (w, 0) => {
