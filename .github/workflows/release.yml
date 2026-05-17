@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  BINARY_NAME: bat_img
+  BINARY_NAME: bat_img_rs
 
 jobs:
   # ── Build the Rust binary on each target platform ──────────────────────────

@@ -13,8 +13,8 @@ mod tests {
     fn build_tiff_le(entries: &[(u16, u16, u16)]) -> Vec<u8> {
         // TIFF header: "II" + magic 42 (LE) + IFD offset = 8
         let mut buf: Vec<u8> = vec![
-            b'I', b'I',             // little-endian
-            0x2A, 0x00,             // magic
+            b'I', b'I', // little-endian
+            0x2A, 0x00, // magic
             0x08, 0x00, 0x00, 0x00, // IFD at offset 8
         ];
 
@@ -23,9 +23,9 @@ mod tests {
         buf.extend_from_slice(&count.to_le_bytes());
 
         for &(tag, typ, val) in entries {
-            buf.extend_from_slice(&tag.to_le_bytes());   // tag
-            buf.extend_from_slice(&typ.to_le_bytes());   // type (3 = SHORT)
-            buf.extend_from_slice(&1u32.to_le_bytes());  // count = 1
+            buf.extend_from_slice(&tag.to_le_bytes()); // tag
+            buf.extend_from_slice(&typ.to_le_bytes()); // type (3 = SHORT)
+            buf.extend_from_slice(&1u32.to_le_bytes()); // count = 1
             // For SHORT values ≤ 4 bytes, the value is stored directly in the
             // value-offset field (little-endian, zero-padded).
             buf.extend_from_slice(&(val as u32).to_le_bytes());
@@ -39,8 +39,8 @@ mod tests {
     /// Build a minimal big-endian TIFF block with a single orientation entry.
     fn build_tiff_be(orientation: u16) -> Vec<u8> {
         let mut buf: Vec<u8> = vec![
-            b'M', b'M',             // big-endian
-            0x00, 0x2A,             // magic
+            b'M', b'M', // big-endian
+            0x00, 0x2A, // magic
             0x00, 0x00, 0x00, 0x08, // IFD at offset 8
         ];
         // 1 entry
@@ -52,7 +52,7 @@ mod tests {
         // TIFF spec: for a SHORT stored inline in the 4-byte value-offset field,
         // big-endian layout puts the value in the *first* 2 bytes of those 4 bytes.
         buf.extend_from_slice(&orientation.to_be_bytes()); // value (2 bytes)
-        buf.extend_from_slice(&[0x00, 0x00]);              // padding (2 bytes)
+        buf.extend_from_slice(&[0x00, 0x00]); // padding (2 bytes)
         buf.extend_from_slice(&0u32.to_be_bytes()); // next IFD
         buf
     }
@@ -76,11 +76,7 @@ mod tests {
 
     /// Build a TIFF with a GPS IFD pointer (tag 0x8825) set to a non-zero offset.
     fn build_tiff_with_gps(gps_offset: u32) -> Vec<u8> {
-        let mut buf: Vec<u8> = vec![
-            b'I', b'I',
-            0x2A, 0x00,
-            0x08, 0x00, 0x00, 0x00,
-        ];
+        let mut buf: Vec<u8> = vec![b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
         // 2 entries: Orientation + GPSInfoIFD
         buf.extend_from_slice(&2u16.to_le_bytes());
 

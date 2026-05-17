@@ -1,21 +1,21 @@
 mod cli;
 mod error;
+mod exif;
 mod heic;
 mod pipeline;
 mod processor;
-mod exif;
 
 use anyhow::Result;
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 // use cli::Args;
 // use error::BatImgError;
-use pipeline::{collect_input_files, build_pipeline};
+use pipeline::{build_pipeline, collect_input_files};
 use processor::ProcessingContext;
 
 fn main() -> Result<()> {
@@ -35,7 +35,10 @@ fn main() -> Result<()> {
     // ── Collect input files ─────────────────────────────────────────────────
     let files = collect_input_files(&args)?;
     if files.is_empty() {
-        eprintln!("{} No image files found matching the input pattern.", "✖".red());
+        eprintln!(
+            "{} No image files found matching the input pattern.",
+            "✖".red()
+        );
         std::process::exit(1);
     }
 
@@ -92,7 +95,10 @@ fn main() -> Result<()> {
                 } else {
                     pb.set_message(format!(
                         "{}",
-                        output_path.file_name().unwrap_or_default().to_string_lossy()
+                        output_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
                     ));
                 }
             }

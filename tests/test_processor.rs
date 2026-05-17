@@ -4,9 +4,9 @@
 /// real temporary images on disk and running ProcessingContext::process().
 #[cfg(test)]
 mod tests {
-    use image::{DynamicImage, GenericImageView, Rgba, RgbImage};
     use bat_img_rs::pipeline::{Pipeline, ResizeSpec};
     use bat_img_rs::processor::ProcessingContext;
+    use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -92,7 +92,10 @@ mod tests {
         let src = save_jpeg(&solid_rgb(1000, 500, 255, 0, 0), &tmp, "src.jpg");
 
         let mut p = base_pipeline(out.path().to_path_buf());
-        p.resize = Some(ResizeSpec { width: 200, height: 0 });
+        p.resize = Some(ResizeSpec {
+            width: 200,
+            height: 0,
+        });
 
         let output = run(src, p);
         let img = image::open(&output).unwrap();
@@ -107,7 +110,10 @@ mod tests {
         let src = save_jpeg(&solid_rgb(800, 400, 0, 255, 0), &tmp, "src.jpg");
 
         let mut p = base_pipeline(out.path().to_path_buf());
-        p.resize = Some(ResizeSpec { width: 0, height: 100 });
+        p.resize = Some(ResizeSpec {
+            width: 0,
+            height: 100,
+        });
 
         let output = run(src, p);
         let img = image::open(&output).unwrap();
@@ -122,7 +128,10 @@ mod tests {
         let src = save_jpeg(&solid_rgb(640, 480, 0, 0, 255), &tmp, "src.jpg");
 
         let mut p = base_pipeline(out.path().to_path_buf());
-        p.resize = Some(ResizeSpec { width: 100, height: 50 });
+        p.resize = Some(ResizeSpec {
+            width: 100,
+            height: 50,
+        });
 
         let output = run(src, p);
         let img = image::open(&output).unwrap();
@@ -137,7 +146,10 @@ mod tests {
         let src = save_jpeg(&solid_rgb(100, 100, 128, 128, 128), &tmp, "src.jpg");
 
         let mut p = base_pipeline(out.path().to_path_buf());
-        p.resize = Some(ResizeSpec { width: 5000, height: 0 });
+        p.resize = Some(ResizeSpec {
+            width: 5000,
+            height: 0,
+        });
         p.no_upscale = true;
 
         let output = run(src, p);
@@ -206,8 +218,8 @@ mod tests {
         let mut img = RgbImage::new(4, 2);
         for y in 0..2 {
             for x in 0..2 {
-                img.put_pixel(x, y, image::Rgb([255, 0, 0]));       // left = red
-                img.put_pixel(x + 2, y, image::Rgb([0, 0, 255]));   // right = blue
+                img.put_pixel(x, y, image::Rgb([255, 0, 0])); // left = red
+                img.put_pixel(x + 2, y, image::Rgb([0, 0, 255])); // right = blue
             }
         }
         let src_img = DynamicImage::ImageRgb8(img);
@@ -223,8 +235,14 @@ mod tests {
 
         // After flip: left should be blue-ish, right should be red-ish
         // (JPEG lossy so check dominant channel)
-        assert!(pixel_left[2] > pixel_left[0], "left should be blue after hflip");
-        assert!(pixel_right[0] > pixel_right[2], "right should be red after hflip");
+        assert!(
+            pixel_left[2] > pixel_left[0],
+            "left should be blue after hflip"
+        );
+        assert!(
+            pixel_right[0] > pixel_right[2],
+            "right should be red after hflip"
+        );
     }
 
     #[test]
@@ -255,7 +273,7 @@ mod tests {
 
         let output = run(src, p);
         let img = image::open(&output).unwrap();
-        assert_eq!(img.width(), 120);  // 100 + 10*2
+        assert_eq!(img.width(), 120); // 100 + 10*2
         assert_eq!(img.height(), 100); // 80  + 10*2
     }
 
@@ -350,7 +368,13 @@ mod tests {
         p.prefix = "web_".to_string();
 
         let output = run(src, p);
-        assert!(output.file_name().unwrap().to_string_lossy().starts_with("web_"));
+        assert!(
+            output
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("web_")
+        );
     }
 
     #[test]
@@ -378,7 +402,10 @@ mod tests {
         let mut p = base_pipeline(PathBuf::new()); // output_dir unused in-place
         p.in_place = true;
         p.output_dir = None;
-        p.resize = Some(ResizeSpec { width: 50, height: 0 });
+        p.resize = Some(ResizeSpec {
+            width: 50,
+            height: 0,
+        });
 
         let output = run(src.clone(), p);
         // Output path must equal input path
@@ -439,7 +466,10 @@ mod tests {
         // Second run with overwrite=false and a different transform — should be skipped
         let mut p2 = base_pipeline(out.path().to_path_buf());
         p2.overwrite = false;
-        p2.resize = Some(ResizeSpec { width: 10, height: 0 });
+        p2.resize = Some(ResizeSpec {
+            width: 10,
+            height: 0,
+        });
         run(src, p2);
 
         // File size should be unchanged (second run skipped)
@@ -463,11 +493,18 @@ mod tests {
         // Second run — resize to 10x10 with overwrite=true
         let mut p2 = base_pipeline(out.path().to_path_buf());
         p2.overwrite = true;
-        p2.resize = Some(ResizeSpec { width: 10, height: 0 });
+        p2.resize = Some(ResizeSpec {
+            width: 10,
+            height: 0,
+        });
         run(src, p2);
 
         let img2 = image::open(&output).unwrap();
-        assert_ne!(img2.dimensions(), dims1, "overwrite=true should replace the file");
+        assert_ne!(
+            img2.dimensions(),
+            dims1,
+            "overwrite=true should replace the file"
+        );
         assert_eq!(img2.width(), 10);
     }
 }

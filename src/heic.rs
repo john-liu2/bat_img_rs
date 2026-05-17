@@ -10,8 +10,7 @@
 use anyhow::{Context, Result};
 use image::{DynamicImage, RgbImage, RgbaImage};
 use libheif_rs::{
-    Channel, ColorSpace, CompressionFormat, EncoderQuality, HeifContext, Image,
-    LibHeif, RgbChroma,
+    Channel, ColorSpace, CompressionFormat, EncoderQuality, HeifContext, Image, LibHeif, RgbChroma,
 };
 use std::path::Path;
 
@@ -44,10 +43,8 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
     let lib = LibHeif::new();
 
     // ── Load context from file ───────────────────────────────────────────────
-    let ctx = HeifContext::read_from_file(
-        path.to_str().context("HEIC path is not valid UTF-8")?,
-    )
-    .with_context(|| format!("libheif: cannot open {}", path.display()))?;
+    let ctx = HeifContext::read_from_file(path.to_str().context("HEIC path is not valid UTF-8")?)
+        .with_context(|| format!("libheif: cannot open {}", path.display()))?;
 
     // ── Primary image item ───────────────────────────────────────────────────
     let handle = ctx
@@ -66,7 +63,7 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
         .as_deref()
     {
         Some("heif") => CompressionFormat::Av1,
-        _            => CompressionFormat::Hevc,
+        _ => CompressionFormat::Hevc,
     };
 
     let meta = HeicMeta { compression };
@@ -81,7 +78,11 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
             handle.metadata(id_buf[0]).ok().map(|raw| {
                 // libheif prefixes EXIF blocks with a 4-byte offset box;
                 // skip it to get a bare TIFF/EXIF block.
-                if raw.len() > 4 { raw[4..].to_vec() } else { raw }
+                if raw.len() > 4 {
+                    raw[4..].to_vec()
+                } else {
+                    raw
+                }
             })
         }
     };
@@ -128,8 +129,7 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
         }
 
         DynamicImage::ImageRgb8(
-            RgbImage::from_raw(width, height, pixels)
-                .context("libheif: cannot build RgbImage")?,
+            RgbImage::from_raw(width, height, pixels).context("libheif: cannot build RgbImage")?,
         )
     };
 
@@ -165,7 +165,10 @@ pub fn encode(
         hi.create_plane(Channel::Interleaved, width, height, 32)
             .context("libheif: cannot create interleaved RGBA plane")?;
 
-        let plane = hi.planes_mut().interleaved.context("libheif: no interleaved plane")?;
+        let plane = hi
+            .planes_mut()
+            .interleaved
+            .context("libheif: no interleaved plane")?;
         let stride = plane.stride;
         let data = plane.data;
         for row in 0..height as usize {
@@ -182,7 +185,10 @@ pub fn encode(
         hi.create_plane(Channel::Interleaved, width, height, 24)
             .context("libheif: cannot create interleaved RGB plane")?;
 
-        let plane = hi.planes_mut().interleaved.context("libheif: no interleaved plane")?;
+        let plane = hi
+            .planes_mut()
+            .interleaved
+            .context("libheif: no interleaved plane")?;
         let stride = plane.stride;
         let data = plane.data;
         for row in 0..height as usize {
@@ -196,9 +202,9 @@ pub fn encode(
 
     // ── Set up encoder using the same codec as the input ─────────────────────
     let encoder_name = match compression {
-        CompressionFormat::Av1  => "AV1",
+        CompressionFormat::Av1 => "AV1",
         CompressionFormat::Hevc => "HEVC",
-        _                       => "HEVC", // safe fallback
+        _ => "HEVC", // safe fallback
     };
 
     let mut encoder = lib
@@ -225,7 +231,8 @@ pub fn encode(
     ctx.encode_image(&heif_img, &mut encoder, None)
         .context("libheif: encoding failed")?;
     ctx.write_to_file(
-        path.to_str().context("HEIC output path is not valid UTF-8")?,
+        path.to_str()
+            .context("HEIC output path is not valid UTF-8")?,
     )
     .context("libheif: cannot write HEIC file")?;
 

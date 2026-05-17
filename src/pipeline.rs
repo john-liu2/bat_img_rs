@@ -8,8 +8,7 @@ use crate::error::BatImgError;
 
 /// Supported image extensions
 const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "tiff", "tif", "bmp", "gif",
-    "heic", "heif",
+    "jpg", "jpeg", "png", "webp", "tiff", "tif", "bmp", "gif", "heic", "heif",
 ];
 
 fn is_image(path: &PathBuf) -> bool {
@@ -126,7 +125,10 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
         if w == 0 && h == 0 {
             return Err(BatImgError::InvalidResize(spec.clone()).into());
         }
-        Some(ResizeSpec { width: w, height: h })
+        Some(ResizeSpec {
+            width: w,
+            height: h,
+        })
     } else {
         None
     };
