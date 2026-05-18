@@ -59,7 +59,7 @@ def metadata_text():
         f"Summary: Fast multithreaded batch image processor (HEIC, JPEG, PNG, WebP, ...)\n"
         f"Author-email: John Liu <rim2rim@gmail.com>\n"
         f"License: MIT\n"
-        f"License-File: ../LICENSE\n"
+        f"License-File: LICENSE\n"
         f"Requires-Python: >=3.12\n"
         f"Keywords: strip-gps,image,batch,heic,resize,exif,cli,cli-tool,image-processing,batch-processing\n"
         f"Classifier: License :: OSI Approved :: MIT License\n"
@@ -87,6 +87,8 @@ def build_wheel(binary_path, platform_tag, dist_dir):
     with zipfile.ZipFile(whl_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write(binary_path, f"{PACKAGE_DIR}/bin/{bin_name}")
         zf.write(shim_src,    f"{PACKAGE_DIR}/__init__.py")
+        zf.write(f"{HERE}/README.md", f"{di}/README.md")
+        zf.write(f"{HERE.parent}/LICENSE", f"{di}/LICENSE")
         zf.writestr(f"{di}/METADATA", metadata_text())
         zf.writestr(f"{di}/WHEEL", (
             f"Wheel-Version: 1.0\nGenerator: build_wheels.py\n"
@@ -98,6 +100,7 @@ def build_wheel(binary_path, platform_tag, dist_dir):
         record = "\n".join([
             f"{PACKAGE_DIR}/bin/{bin_name},,",
             f"{PACKAGE_DIR}/__init__.py,,",
+            f"{di}/README.md,,", f"{di}/LICENSE,,",
             f"{di}/METADATA,,", f"{di}/WHEEL,,",
             f"{di}/entry_points.txt,,", f"{di}/RECORD,,",
         ])
@@ -119,6 +122,7 @@ def build_sdist(dist_dir):
 
     files = {
         f"{prefix}/pyproject.toml": (HERE / "pyproject.toml").read_bytes(),
+        f"{prefix}/LICENSE": (HERE.parent / "LICENSE").read_bytes(),
         f"{prefix}/README.md": (HERE / "README.md").read_bytes(),
         f"{prefix}/{PACKAGE_DIR}/__init__.py": (HERE / PACKAGE_DIR / "__init__.py").read_bytes(),
         f"{prefix}/PKG-INFO": metadata_text().encode(),
