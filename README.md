@@ -30,7 +30,7 @@ A fast, **multithreaded** batch image processing command line tool in Rust.
 
 ## Requirements
 
-- macOS 12+ (Intel or Apple Silicon)
+- macOS 12+ (Apple Silicon)
 - [Rust toolchain](https://rustup.rs) (stable, 1.78+)
 - **libheif** (for HEIC/HEIF support):
 
