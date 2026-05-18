@@ -1,29 +1,47 @@
 [build-system]
-requires = ["setuptools>=80", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "hatchling.build"
+requires = ["hatchling"]
 
 [project]
 name = "bat_img"
-version = "1.0.0"
-description = "Fast multithreaded batch image processor (HEIC, JPEG, PNG, WebP, …)"
-readme = "README_PYPI.md"
-license = { text = "MIT" }
-requires-python = ">=3.12"
-keywords = ["image", "batch", "heic", "resize", "exif", "cli"]
+version = "1.0.3"
+description = "Fast multithreaded batch image processing CLI tool (HEIC, JPEG, PNG, WebP, …)"
+readme = "README.md"
+authors = [{ name = "John Liu", email = "rim2rim@gmail.com" }]
+license = "MIT"
+license-files = ["../LICENSE"]
+keywords = ["strip-gps", "image", "batch", "heic", "resize", "exif", "cli", "cli-tool", "image-processing", "batch-processing"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Rust",
-    "Topic :: Multimedia :: Graphics",
-    "Environment :: Console",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Utilities",
 ]
+requires-python = ">=3.12"
 
 [project.scripts]
 bat_img = "bat_img_cli:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["bat_img_cli*"]
+[project.urls]
+Download = "https://pypi.org/project/bat-img/"
+Homepage = "https://github.com/john-liu2/bat_img_rs"
 
-[tool.setuptools.package-data]
-bat_img_cli = ["bin/*"]
+[tool.hatch.build.targets.sdist]
+# Include only the Python source files in the sdist.
+# The binary is NOT included. Whoever install from sdist must build Rust themselves.
+include = [
+    "bat_img_cli*",
+    "pyproject.toml",
+    "README.md",
+    "../LICENSE",
+]
+
+[tool.hatch.build.targets.wheel]
+# Wheels are assembled by build_wheels.py, not hatch.
+# This section is kept for completeness / local editable installs.
+packages = ["bat_img_cli"]
+artifacts = ["bat_img_cli/bin/*"]

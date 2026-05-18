@@ -228,6 +228,12 @@ Each thread:
 
 There are **no shared mutable data structures** — the pipeline config is read-only and image buffers are per-thread, so the tool scales linearly with core count.
 
+## Source & issues
+
+- **Source:** <https://github.com/john-liu2/bat_img_rs>
+- **Issues:** <https://github.com/john-liu2/bat_img_rs/issues>
+
 ## License
 
-MIT
+**bat_img_rs** is distributed under MIT License. Please see details in
+[LICENSE](https://github.com/john-liu2/bat_img_rs/blob/main/LICENSE).

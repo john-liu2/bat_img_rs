@@ -21,9 +21,9 @@ jobs:
             target: aarch64-apple-darwin      # Apple Silicon
             artifact: bat_img-aarch64-apple-darwin
 
-          # - os: macos-13                       # last Intel runner
-          #   target: x86_64-apple-darwin       # Intel Mac
-          #   artifact: bat_img-x86_64-apple-darwin
+          - os: macos-13                       # last Intel runner
+            target: x86_64-apple-darwin       # Intel Mac
+            artifact: bat_img-x86_64-apple-darwin
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -52,7 +52,7 @@ jobs:
             cmake ninja-build pkg-config \
             libde265-dev libx265-dev libaom-dev \
             libpng-dev libjpeg-dev zlib1g-dev
- 
+
           LIBHEIF_VERSION=1.21.0
           curl -fsSL \
             https://github.com/strukturag/libheif/releases/download/v${LIBHEIF_VERSION}/libheif-${LIBHEIF_VERSION}.tar.gz \
@@ -74,6 +74,7 @@ jobs:
           vcpkg install libheif:x64-windows-static
           echo "VCPKG_ROOT=C:/vcpkg" >> $env:GITHUB_ENV
           echo "VCPKGRS_TRIPLET=x64-windows-static" >> $env:GITHUB_ENV
+          # Static linking avoids shipping a separate libheif DLL with the binary
           echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
 
       - name: Install Rust toolchain
@@ -126,18 +127,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build wheel
+        run: pip install hatchling twine build
 
       - name: Download all binaries
         uses: actions/download-artifact@v4
         with:
           path: binaries/
 
-      - name: Build platform wheels
+      - name: Build platform wheels and sdist
         run: python python/build_wheels.py binaries/
+
+      - name: Validate distribution files
+        run: twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
