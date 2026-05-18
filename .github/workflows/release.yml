@@ -21,9 +21,9 @@ jobs:
             target: aarch64-apple-darwin      # Apple Silicon
             artifact: bat_img-aarch64-apple-darwin
 
-          # - os: macos-13                       # last Intel runner
-          #   target: x86_64-apple-darwin       # Intel Mac
-          #   artifact: bat_img-x86_64-apple-darwin
+          - os: macos-13                       # last Intel runner
+            target: x86_64-apple-darwin       # Intel Mac
+            artifact: bat_img-x86_64-apple-darwin
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu

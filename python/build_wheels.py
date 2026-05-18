@@ -118,10 +118,10 @@ def build_sdist(dist_dir):
     prefix     = f"{PACKAGE_NAME}-{VERSION}"
 
     files = {
-        f"{prefix}/pyproject.toml":            (HERE / "pyproject.toml").read_bytes(),
-        f"{prefix}/README.md":            (HERE / "README.md").read_bytes(),
+        f"{prefix}/pyproject.toml": (HERE / "pyproject.toml").read_bytes(),
+        f"{prefix}/README.md": (HERE / "README.md").read_bytes(),
         f"{prefix}/{PACKAGE_DIR}/__init__.py": (HERE / PACKAGE_DIR / "__init__.py").read_bytes(),
-        f"{prefix}/PKG-INFO":                  metadata_text().encode(),
+        f"{prefix}/PKG-INFO": metadata_text().encode(),
     }
 
     with tarfile.open(sdist_path, "w:gz") as tf:
