@@ -4,7 +4,7 @@ requires = ["hatchling"]
 
 [project]
 name = "bat_img"
-version = "1.0.3"
+version = "1.0.4"
 description = "Fast multithreaded batch image processing CLI tool (HEIC, JPEG, PNG, WebP, …)"
 readme = "README.md"
 authors = [{ name = "John Liu", email = "rim2rim@gmail.com" }]
