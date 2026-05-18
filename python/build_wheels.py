@@ -30,7 +30,7 @@ PACKAGE_NAME = "bat_img"
 PACKAGE_DIR  = "bat_img_cli"
 PYTHON_TAG   = "py3"
 ABI_TAG      = "none"
-VERSION      = "1.0.3"   # keep in sync with pyproject.toml
+VERSION      = "1.0.4"   # keep in sync with pyproject.toml
 
 PLATFORM_MAP = {
     "aarch64-apple-darwin":     "macosx_11_0_arm64",
