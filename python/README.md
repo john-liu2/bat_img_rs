@@ -19,7 +19,6 @@ Pre-built binaries are provided for:
 | Platform | Architecture |
 |---|---|
 | macOS | Apple Silicon (M1 / M2 / M3 / M4) |
-| macOS | Intel (x86-64) |
 | Linux | x86-64 (glibc 2.17+, compatible with most distros) |
 | Windows | x86-64 |
 
