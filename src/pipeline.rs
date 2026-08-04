@@ -78,7 +78,6 @@ pub struct ResizeSpec {
 pub struct Pipeline {
     pub strip_gps: bool,
     pub strip_all: bool,
-    pub auto_orient: bool,
 
     pub resize: Option<ResizeSpec>,
     pub no_upscale: bool,
@@ -157,7 +156,6 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
     Ok(Pipeline {
         strip_gps: args.strip_gps || args.strip_all,
         strip_all: args.strip_all,
-        auto_orient: args.auto_orient,
         resize,
         no_upscale: args.no_upscale,
         filter: args.filter.into(),

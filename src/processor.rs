@@ -55,11 +55,11 @@ impl ProcessingContext {
         // For other formats it holds the full raw file bytes.
         let raw_bytes_for_exif: Vec<u8> = maybe_exif.unwrap_or_default();
 
-        // ── Handle EXIF: auto-orient, strip GPS / all ────────────────────────
+        // ── Handle EXIF: strip GPS / all ────────────────────────
         // For HEIC the pixel data already comes out of libheif correctly oriented
         // (libheif applies the transformation grid internally), so we only need
-        // orientation for --auto-orient on non-HEIC files.
-        let exif_orientation = if !is_heic && (p.auto_orient || p.strip_gps || p.strip_all) {
+        // orientation for non-HEIC files.
+        let exif_orientation = if !is_heic && (p.strip_gps || p.strip_all) {
             exif::read_orientation(&raw_bytes_for_exif).unwrap_or(1)
         } else {
             1
@@ -87,7 +87,9 @@ impl ProcessingContext {
         }
 
         // ── Auto-orient from EXIF ────────────────────────────────────────────
-        if p.auto_orient {
+        // Re-encoding JPEGs drops EXIF, so bake orientation into pixels whenever
+        // we strip metadata.
+        if p.strip_all || p.strip_gps {
             img = apply_orientation(img, exif_orientation);
         }
 

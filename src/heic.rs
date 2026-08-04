@@ -37,7 +37,7 @@ pub struct HeicMeta {
 ///
 /// Returns:
 /// - the decoded pixels as a `DynamicImage`
-/// - raw EXIF bytes (if present), for GPS-strip / auto-orient
+/// - raw EXIF bytes (if present), for strip-gps / strip-all
 /// - [`HeicMeta`] describing the input encoding, for faithful re-encoding
 pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> {
     let lib = LibHeif::new();
