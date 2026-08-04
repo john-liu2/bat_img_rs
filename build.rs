@@ -18,4 +18,10 @@ fn main() {
         // pkg-config picks up the exact flags; these are the typical names.
         println!("cargo:rustc-link-lib=heif");
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        println!("cargo:rustc-link-lib=advapi32");
+    }
+
 }
