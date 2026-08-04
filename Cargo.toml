@@ -27,7 +27,7 @@ image = { version = "0.25", features = ["jpeg", "png", "webp", "tiff", "gif"] }
 libheif-rs = { version = "2.7", features = ["image"] }
 
 # EXIF metadata manipulation (strip GPS, read metadata)
-kamadak-exif = "0.6"
+exif_lib = { package = "kamadak-exif", version = "0.6" }
 
 # Parallel processing
 rayon = "1.10"

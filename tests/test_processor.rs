@@ -10,7 +10,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
-
+    use bat_img_rs::exif::{read_orientation};
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// Solid-colour RGB test image.
@@ -431,6 +431,26 @@ mod tests {
         let output = run(src.clone(), p);
         assert_eq!(output, src);
         image::open(&output).unwrap(); // must still be decodable
+    }
+/*
+EXIF orientation values:
+1  normal
+2  flip horizontal
+3  rotate 180
+4  flip vertical
+5  transpose
+6  rotate 90 CW
+7  transverse
+8  rotate 270 CW
+*/
+    #[test]
+    fn orientation_from_injected_exif_returns_six() {
+        let tmp = TempDir::new().unwrap();
+        let src = save_jpeg(&solid_rgb(200, 100, 255, 0, 0), &tmp, "t6.jpg");
+        let jpeg = inject_exif_orientation(&std::fs::read(&src).unwrap(),
+            6, Some(0x1234));
+
+        assert_eq!(read_orientation(&jpeg), Some(6));
     }
 
     #[test]
