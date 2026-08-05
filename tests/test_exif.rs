@@ -4,9 +4,49 @@
 /// no fixture files are required.
 #[cfg(test)]
 mod tests {
-    use bat_img_rs::exif::{read_orientation, strip_all_metadata, strip_gps_metadata};
+    use bat_img_rs::exif::{is_png, is_tiff, read_orientation, strip_all_metadata, strip_gps_metadata};
+    use tempfile::TempDir;
 
     // ── TIFF / EXIF byte-building helpers ─────────────────────────────────────
+
+    fn png_with_exif_chunk(exif: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"\x89PNG\r\n\x1a\n");
+
+        // eXIf chunk
+        out.extend_from_slice(&(exif.len() as u32).to_be_bytes());
+        out.extend_from_slice(b"eXIf");
+        out.extend_from_slice(exif);
+
+        // Fake CRC (not needed by your chunk rewriter)
+        out.extend_from_slice(&0u32.to_be_bytes());
+
+        // IEND chunk
+        out.extend_from_slice(&0u32.to_be_bytes());
+        out.extend_from_slice(b"IEND");
+        out.extend_from_slice(&0u32.to_be_bytes());
+        out
+    }
+
+    fn webp_with_exif_chunk(exif: &[u8]) -> Vec<u8> {
+        let mut body = Vec::new();
+
+        body.extend_from_slice(b"EXIF");
+        body.extend_from_slice(&(exif.len() as u32).to_le_bytes());
+        body.extend_from_slice(exif);
+
+        if exif.len() % 2 == 1 {
+            body.push(0);
+        }
+        let file_size = 4 + body.len();
+        let mut out = Vec::new();
+
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(file_size as u32).to_le_bytes());
+        out.extend_from_slice(b"WEBP");
+        out.extend_from_slice(&body);
+        out
+    }
 
     /// Build a minimal little-endian TIFF block containing a single IFD with
     /// the given tag entries.  Each entry is `(tag, type, value_u16)`.
@@ -231,5 +271,65 @@ mod tests {
         let jpeg = jpeg_with_exif(&tiff);
         let stripped = strip_gps_metadata(&jpeg).unwrap();
         assert!(stripped.starts_with(&[0xFF, 0xD8]));
+    }
+
+    #[test]
+    fn strip_png_exif_metadata_and_save_file() {
+        let tmp = TempDir::new().unwrap();
+
+        let input = tmp.path().join("input.png");
+        let output = tmp.path().join("output.png");
+
+        // Minimal PNG containing an eXIf chunk.
+        let png = png_with_exif_chunk(b"fake_exif_data");
+
+        std::fs::write(&input, &png).unwrap();
+        let stripped = strip_all_metadata(&png).unwrap();
+
+        std::fs::write(&output, &stripped).unwrap();
+        assert!(output.exists());
+
+        let saved = std::fs::read(&output).unwrap();
+
+        assert!(is_png(&saved));
+        assert!(!saved.windows(4).any(|x| x == b"eXIf"));
+    }
+
+    #[test]
+    fn strip_webp_exif_metadata_and_save_file() {
+        let tmp = TempDir::new().unwrap();
+
+        let output = tmp.path().join("output.webp");
+        let webp = webp_with_exif_chunk(b"fake_exif");
+
+        let stripped = strip_all_metadata(&webp).unwrap();
+
+        std::fs::write(&output, &stripped).unwrap();
+        assert!(output.exists());
+
+        let saved = std::fs::read(&output).unwrap();
+
+        assert!(saved.starts_with(b"RIFF"));
+        assert!(!saved.windows(4).any(|x| x == b"EXIF"));
+    }
+
+    #[test]
+    fn strip_tiff_gps_metadata_and_save_file() {
+        let tmp = TempDir::new().unwrap();
+
+        let output = tmp.path().join("output.tiff");
+
+        // GPSInfoIFDPointer tag = 0x8825
+        let tiff = build_tiff_le(&[
+            (0x0112, 3, 6),       // Orientation
+            (0x8825, 4, 1234),    // GPS pointer
+        ]);
+
+        let stripped = strip_all_metadata(&tiff).unwrap();
+        std::fs::write(&output, &stripped).unwrap();
+        assert!(output.exists());
+
+        let saved = std::fs::read(&output).unwrap();
+        assert!(is_tiff(&saved));
     }
 }

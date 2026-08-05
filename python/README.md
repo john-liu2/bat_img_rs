@@ -36,8 +36,8 @@ bat_img -i ./photos -r 1920x0 -o ./web
 # Convert HEIC → WebP at quality 85, resize to 2048 px wide
 bat_img -i ./iphone_photos -r 2048x0 -f webp -q 85 -o ./web
 
-# Strip ALL metadata, auto-orient, sharpen — 8 threads, recurse
-bat_img -i ./raw -R --strip-all --auto-orient --sharpen -t 8 -o ./export
+# Strip ALL metadata, sharpen — 8 threads, recurse
+bat_img -i ./raw -R --strip-all --sharpen -t 8 -o ./export
 ```
 
 ## Features
@@ -47,7 +47,6 @@ bat_img -i ./raw -R --strip-all --auto-orient --sharpen -t 8 -o ./export
 | **In-place processing** — overwrite originals | *(omit `--output`)* |
 | Strip GPS location from EXIF | `--strip-gps` |
 | Strip ALL metadata (EXIF, IPTC, XMP) | `--strip-all` |
-| Auto-orient from EXIF | `--auto-orient` |
 | Resize (width, height, or both) | `-r 1920x0` |
 | No-upscale guard | `--no-upscale` |
 | Resize filter | `--filter lanczos3` |
@@ -87,7 +86,6 @@ bat_img [OPTIONS] --input <INPUT>...
                                heic | heif | jpeg | png | webp | tiff | bmp | gif
       --strip-gps              Remove GPS location from EXIF
       --strip-all              Remove all metadata
-      --auto-orient            Auto-rotate from EXIF orientation tag
   -r, --resize <WxH>           Resize (use 0 for auto: 1920x0 or 0x1080)
       --filter <FILTER>        Resize filter [default: lanczos3]
                                nearest|triangle|catmull-rom|gaussian|lanczos3

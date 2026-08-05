@@ -10,7 +10,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
-
+    use bat_img_rs::exif::{read_orientation};
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// Solid-colour RGB test image.
@@ -50,7 +50,6 @@ mod tests {
         Pipeline {
             strip_gps: false,
             strip_all: false,
-            auto_orient: false,
             resize: None,
             no_upscale: false,
             filter: image::imageops::FilterType::Lanczos3,
@@ -432,6 +431,88 @@ mod tests {
         let output = run(src.clone(), p);
         assert_eq!(output, src);
         image::open(&output).unwrap(); // must still be decodable
+    }
+/*
+EXIF orientation values:
+1  normal
+2  flip horizontal
+3  rotate 180
+4  flip vertical
+5  transpose
+6  rotate 90 CW
+7  transverse
+8  rotate 270 CW
+*/
+    #[test]
+    fn orientation_from_injected_exif_returns_six() {
+        let tmp = TempDir::new().unwrap();
+        let src = save_jpeg(&solid_rgb(200, 100, 255, 0, 0), &tmp, "t6.jpg");
+        let jpeg = inject_exif_orientation(&std::fs::read(&src).unwrap(),
+            6, Some(0x1234));
+
+        assert_eq!(read_orientation(&jpeg), Some(6));
+    }
+
+    #[test]
+    fn strip_gps_applies_exif_orientation() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        // Landscape source (200×100). EXIF orientation 6 = rotate 90° CW for display.
+        let src = save_jpeg(&solid_rgb(200, 100, 255, 0, 0), &tmp, "photo.jpg");
+        let with_exif = inject_exif_orientation(
+            &std::fs::read(&src).unwrap(),
+            6,
+            Some(0x1234),
+        );
+        std::fs::write(&src, &with_exif).unwrap();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.strip_gps = true;
+
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+        // Orientation must be baked into pixels: 200×100 landscape → 100×200 portrait.
+        assert_eq!(img.width(), 100);
+        assert_eq!(img.height(), 200);
+    }
+
+    /// Insert an APP1 EXIF segment immediately after SOI.
+    fn inject_exif_orientation(jpeg: &[u8], orientation: u16, gps_offset: Option<u32>) -> Vec<u8> {
+        assert!(jpeg.starts_with(&[0xFF, 0xD8]));
+
+        let mut tiff: Vec<u8> = vec![b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+        let entry_count = if gps_offset.is_some() { 2 } else { 1 };
+        tiff.extend_from_slice(&(entry_count as u16).to_le_bytes());
+
+        // Orientation tag
+        tiff.extend_from_slice(&0x0112u16.to_le_bytes());
+        tiff.extend_from_slice(&3u16.to_le_bytes());
+        tiff.extend_from_slice(&1u32.to_le_bytes());
+        tiff.extend_from_slice(&(orientation as u32).to_le_bytes());
+
+        if let Some(offset) = gps_offset {
+            tiff.extend_from_slice(&0x8825u16.to_le_bytes());
+            tiff.extend_from_slice(&4u16.to_le_bytes());
+            tiff.extend_from_slice(&1u32.to_le_bytes());
+            tiff.extend_from_slice(&offset.to_le_bytes());
+        }
+
+        tiff.extend_from_slice(&0u32.to_le_bytes());
+
+        let exif_header = b"Exif\x00\x00";
+        let payload_len = exif_header.len() + tiff.len();
+        let seg_len = (payload_len + 2) as u16;
+
+        let mut out = Vec::with_capacity(jpeg.len() + payload_len + 4);
+        out.extend_from_slice(&jpeg[0..2]);
+        out.push(0xFF);
+        out.push(0xE1);
+        out.extend_from_slice(&seg_len.to_be_bytes());
+        out.extend_from_slice(exif_header);
+        out.extend_from_slice(&tiff);
+        out.extend_from_slice(&jpeg[2..]);
+        out
     }
 
     // ── Dry-run ───────────────────────────────────────────────────────────────

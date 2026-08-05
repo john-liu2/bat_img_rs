@@ -55,11 +55,10 @@ impl ProcessingContext {
         // For other formats it holds the full raw file bytes.
         let raw_bytes_for_exif: Vec<u8> = maybe_exif.unwrap_or_default();
 
-        // ── Handle EXIF: auto-orient, strip GPS / all ────────────────────────
         // For HEIC the pixel data already comes out of libheif correctly oriented
         // (libheif applies the transformation grid internally), so we only need
-        // orientation for --auto-orient on non-HEIC files.
-        let exif_orientation = if !is_heic && (p.auto_orient || p.strip_gps || p.strip_all) {
+        // orientation for non-HEIC files.
+        let exif_orientation = if !is_heic && (p.strip_gps || p.strip_all) {
             exif::read_orientation(&raw_bytes_for_exif).unwrap_or(1)
         } else {
             1
@@ -87,7 +86,9 @@ impl ProcessingContext {
         }
 
         // ── Auto-orient from EXIF ────────────────────────────────────────────
-        if p.auto_orient {
+        // Re-encoding JPEGs drops EXIF, so bake orientation into pixels whenever
+        // we strip metadata.
+        if p.strip_all || p.strip_gps {
             img = apply_orientation(img, exif_orientation);
         }
 
@@ -170,10 +171,14 @@ impl ProcessingContext {
                     .unwrap_or("")
                     .to_lowercase();
                 let dst_ext = fmt.extension();
-                // normalise jpeg/jpg
+                // jpeg/jpg, png/png, tiff/tif, webp/webp etc. to allow in-place
                 let same = src_ext == dst_ext
                     || (src_ext == "jpg" && dst_ext == "jpeg")
-                    || (src_ext == "jpeg" && dst_ext == "jpg");
+                    || (src_ext == "jpeg" && dst_ext == "jpg")
+                    || (src_ext == "png" && dst_ext == "png")
+                    || (src_ext == "tif" && dst_ext == "tiff")
+                    || (src_ext == "tiff" && dst_ext == "tif")
+                    || (src_ext == "webp" && dst_ext == "webp");
                 if !same {
                     anyhow::bail!(
                         "In-place mode cannot change format from .{} to .{}. \
@@ -226,11 +231,17 @@ impl ProcessingContext {
             .unwrap_or("jpg")
             .to_lowercase();
 
-        // ── When writing in-place, encode to a sibling temp file first,
-        //    then atomically rename over the original.  This guarantees the
-        //    original is never left in a half-written state if encoding fails.
+        // When writing in-place, encode to a sibling temp file first,
+        // then atomically rename over the original.  This guarantees the
+        // original is never left in a half-written state if encoding fails.
         let (write_path, is_temp) = if p.in_place {
-            let tmp = path.with_extension(format!("{}.bat_img_tmp", ext));
+            let tmp = path.with_file_name(format!(
+                "{}.{}.bat_img_tmp",
+                path.file_stem()
+                    .unwrap()
+                    .to_string_lossy(),
+                ext
+            ));
             (tmp, true)
         } else {
             (path.clone(), false)
@@ -295,8 +306,16 @@ impl ProcessingContext {
                     .with_context(|| format!("JPEG encode failed for {}", path.display()))?;
             }
             "webp" => {
-                img.save(path)
-                    .with_context(|| format!("WebP save failed for {}", path.display()))?;
+                img.save_with_format(path, image::ImageFormat::WebP)
+                .with_context(|| format!("WebP save failed for {}", path.display()))?;
+            }
+            "png" => {
+                img.save_with_format(path, image::ImageFormat::Png)
+                    .with_context(|| format!("PNG save failed for {}", path.display()))?;
+            }
+            "tif" | "tiff" => {
+                img.save_with_format(path, image::ImageFormat::Tiff)
+                    .with_context(|| format!("TIFF save failed for {}", path.display()))?;
             }
             _ => {
                 img.save(path)

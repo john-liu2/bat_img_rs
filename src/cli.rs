@@ -93,10 +93,6 @@ pub struct Args {
     #[arg(long, action = ArgAction::SetTrue)]
     pub flip_v: bool,
 
-    /// Auto-rotate based on EXIF orientation tag before applying other transforms
-    #[arg(long, action = ArgAction::SetTrue)]
-    pub auto_orient: bool,
-
     // ── Color / Adjustments ──────────────────────────────────────────────────
     /// Brightness adjustment (-100 to +100)
     #[arg(long, value_name = "VALUE", allow_negative_numbers = true)]
