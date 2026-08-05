@@ -54,11 +54,11 @@ install-local: dist
 	@echo "==> Installing local wheel …"
 	$(PIP) install --force-reinstall $(PKG_DIR)/$(DIST_DIR)/*.whl
 	@echo ""
-	@echo "==> Smoke test (imgbatch --version) …"
-	imgbatch --version
+	@echo "==> Smoke test ($(BIN_NAME) --version) …"
+	$(BIN_NAME) --version
 	@echo ""
-	@echo "==> Smoke test (imgbatch --help) …"
-	imgbatch --help
+	@echo "==> Smoke test ($(BIN_NAME) --help) …"
+	$(BIN_NAME) --help
 
 # ── TestPyPI ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ testpypi: check
 		--repository testpypi \
 		$(PKG_DIR)/$(DIST_DIR)/*
 	@echo ""
-	@echo "Package URL: https://test.pypi.org/project/imgbatch/"
+	@echo "Package URL: https://test.pypi.org/project/bat-img/"
 
 ## Install from TestPyPI and verify the CLI works
 test-testpypi:
@@ -78,11 +78,11 @@ test-testpypi:
 	$(PIP) install \
 		--index-url https://test.pypi.org/simple/ \
 		--extra-index-url https://pypi.org/simple/ \
-		imgbatch
+		$(BIN_NAME)
 	@echo ""
 	@echo "==> Verifying …"
-	imgbatch --version
-	imgbatch --help
+	$(BIN_NAME) --version
+	$(BIN_NAME) --help
 
 # ── Real PyPI ─────────────────────────────────────────────────────────────────
 
@@ -91,14 +91,13 @@ publish: check
 	@echo "==> Uploading to PyPI …"
 	$(PYTHON) -m twine upload $(PKG_DIR)/$(DIST_DIR)/*
 	@echo ""
-	@echo "Package URL: https://pypi.org/project/imgbatch/"
+	@echo "Package URL: https://pypi.org/project/bat-img/"
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
 ## Remove build artifacts
 clean:
 	rm -rf $(PKG_DIR)/$(DIST_DIR)
-	rm -rf $(PKG_DIR)/imgbatch_cli/__pycache__
 	rm -rf $(PKG_DIR)/*.egg-info
 
 ## Show this help

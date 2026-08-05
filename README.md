@@ -9,7 +9,6 @@ A fast, **multithreaded** batch image processing command line tool in Rust.
 | In-place processing (overwrite originals) | *(omit `--output`)* |
 | Strip GPS location from EXIF | `--strip-gps` |
 | Strip ALL metadata | `--strip-all` |
-| Auto-orient from EXIF | `--auto-orient` |
 | Resize (width, height, or both) | `-r 1920x0` |
 | No-upscale guard | `--no-upscale` |
 | Resize filter (nearest/lanczos3/…) | `--filter lanczos3` |
@@ -92,7 +91,6 @@ bat_img_rs [OPTIONS] --input <INPUT>...
                                heic | heif | jpeg | png | webp | tiff | bmp | gif
       --strip-gps              Remove GPS location from EXIF
       --strip-all              Remove all metadata (EXIF, IPTC, XMP)
-      --auto-orient            Auto-rotate per EXIF orientation tag
   -r, --resize <WxH>           Resize image (0 = auto-scale, e.g. 1920x0)
       --filter <FILTER>        Resize filter [default: lanczos3]
                                nearest | triangle | catmull-rom | gaussian | lanczos3
@@ -144,8 +142,8 @@ bat_img_rs -i ./archive -R --strip-all
 # Resize all HEICs to 2048px wide, keep HEIC format
 bat_img_rs -i ./photos -r 2048x0
 
-# Auto-orient, sharpen, and strip GPS — all in one pass, 8 threads
-bat_img_rs -i ./raw -R --auto-orient --sharpen --strip-gps -t 8
+# Sharpen, and strip GPS — all in one pass, 8 threads
+bat_img_rs -i ./raw -R --sharpen --strip-gps -t 8
 ```
 
 ### Output to a directory
@@ -169,8 +167,8 @@ bat_img_rs -i ./scans --rotate 90 --flip-h --grayscale --suffix _bw -o ./process
 # Brightness +10, contrast +15, prefix "web_"
 bat_img_rs -i ./input --brightness 10 --contrast 15 --prefix web_ -o ./enhanced
 
-# Strip all metadata, auto-orient, sharpen, 8 threads, recurse
-bat_img_rs -i ./raw -R --strip-all --auto-orient --sharpen -t 8 -o ./export
+# Strip all metadata, sharpen, 8 threads, recurse
+bat_img_rs -i ./raw -R --strip-all --sharpen -t 8 -o ./export
 
 # Resize with height constraint (fit to 1080px tall, keep aspect ratio)
 bat_img_rs -i ./landscape/*.jpg -r 0x1080 --filter lanczos3 -o ./resized
@@ -202,7 +200,7 @@ src/
 ├── processor.rs   — ProcessingContext: runs the full pipeline on one image
 ├── heic.rs        — HEIC/HEIF decode + encode via libheif-rs; preserves source codec
 ├── exif.rs        — JPEG byte-level EXIF parser: strip GPS IFD, strip all APP segments,
-│                    read orientation tag for auto-orient
+│                    read orientation tag
 └── error.rs       — Custom error types (thiserror)
 ```
 
