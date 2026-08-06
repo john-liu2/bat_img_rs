@@ -4,7 +4,11 @@
 /// no fixture files are required.
 #[cfg(test)]
 mod tests {
-    use bat_img_rs::exif::{is_png, is_tiff, read_orientation, strip_all_metadata, strip_gps_metadata};
+    use bat_img_rs::exif::{
+        extract_exif_tiff, graft_exif_metadata, is_png, is_tiff, read_orientation, strip_all_metadata,
+        strip_gps_metadata,
+    };
+    use image::RgbImage;
     use tempfile::TempDir;
 
     // ── TIFF / EXIF byte-building helpers ─────────────────────────────────────
@@ -231,6 +235,46 @@ mod tests {
     }
 
     // ── strip_gps_metadata ────────────────────────────────────────────────────
+
+    #[test]
+    fn graft_exif_preserves_app1_on_real_jpeg_encode() {
+        let mut img = RgbImage::new(8, 8);
+        for pixel in img.pixels_mut() {
+            *pixel = image::Rgb([1, 2, 3]);
+        }
+        let mut encoded = Vec::new();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 90);
+        enc.encode(
+            img.as_raw(),
+            img.width(),
+            img.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .unwrap();
+
+        let tiff = build_tiff_with_gps(0x1234);
+        let jpeg = jpeg_with_exif(&tiff);
+        let stripped = strip_gps_metadata(&jpeg).unwrap();
+
+        let grafted = graft_exif_metadata(&encoded, &stripped).unwrap();
+        assert!(grafted.windows(2).any(|w| w == [0xFF, 0xE1]));
+    }
+
+    #[test]
+    fn graft_exif_preserves_app1_after_reencode() {
+        let tiff = build_tiff_with_gps(0x1234);
+        let jpeg = jpeg_with_exif(&tiff);
+        let stripped = strip_gps_metadata(&jpeg).unwrap();
+        assert!(extract_exif_tiff(&stripped).is_some());
+
+        // Simulate a fresh encode without metadata.
+        let encoded = strip_all_metadata(&jpeg).unwrap();
+        assert!(!encoded.windows(2).any(|w| w == [0xFF, 0xE1]));
+
+        let grafted = graft_exif_metadata(&encoded, &stripped).unwrap();
+        assert!(grafted.windows(2).any(|w| w == [0xFF, 0xE1]));
+        assert!(!grafted.windows(4).any(|w| w == 0x1234u32.to_le_bytes()));
+    }
 
     #[test]
     fn strip_gps_zeroes_gps_ifd_pointer() {

@@ -153,6 +153,13 @@ impl ProcessingContext {
         // ── Encode & save ────────────────────────────────────────────────────
         self.save_image(&img, &output_path, heic_meta.as_ref())?;
 
+        // Re-encoding drops EXIF; graft GPS-stripped metadata back for --strip-gps.
+        if p.strip_gps && !p.strip_all && !is_heic {
+            if let Some(ref stripped) = processed_bytes {
+                exif::graft_exif_file(&output_path, stripped)?;
+            }
+        }
+
         Ok(output_path)
     }
 

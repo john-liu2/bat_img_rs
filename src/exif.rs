@@ -3,7 +3,8 @@
 //! GPS removal rewrites the embedded TIFF/EXIF block in-place where possible.
 //! Orientation is read from the same EXIF block across all supported containers.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::path::Path;
 
 // ── Format signatures ─────────────────────────────────────────────────────────
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
@@ -32,12 +33,60 @@ pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
+/// Extract the raw TIFF/EXIF block from any supported image container.
+pub fn extract_exif_tiff(bytes: &[u8]) -> Option<Vec<u8>> {
+    if is_jpeg(bytes) {
+        extract_jpeg_exif_tiff(bytes).map(|t| t.to_vec())
+    } else if is_png(bytes) {
+        extract_png_exif_tiff(bytes)
+    } else if is_webp(bytes) {
+        extract_webp_exif_tiff(bytes)
+    } else if is_tiff(bytes) {
+        Some(bytes.to_vec())
+    } else {
+        None
+    }
+}
+
+/// Copy non-GPS EXIF from a GPS-stripped source image into freshly encoded output bytes.
+/// Orientation is reset to 1 because callers bake EXIF orientation into pixels before
+/// re-encoding. Returns the original output unchanged when the source has no EXIF.
+pub fn graft_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Vec<u8>> {
+    let Some(mut exif_tiff) = extract_exif_tiff(source_stripped) else {
+        return Ok(output.to_vec());
+    };
+    reset_orientation_in_tiff(&mut exif_tiff);
+
+    if is_jpeg(output) {
+        inject_exif_into_jpeg(output, &exif_tiff)
+    } else if is_png(output) {
+        inject_exif_into_png(output, &exif_tiff)
+    } else if is_webp(output) {
+        inject_exif_into_webp(output, &exif_tiff)
+    } else if is_tiff(output) {
+        // Re-encoded TIFF has no embedded EXIF IFD; write the stripped IFD back in full.
+        Ok(exif_tiff)
+    } else {
+        Ok(output.to_vec())
+    }
+}
+
+/// Graft GPS-stripped EXIF from `source_stripped` into an on-disk encoded output file.
+pub fn graft_exif_file(output_path: &Path, source_stripped: &[u8]) -> Result<()> {
+    let encoded = std::fs::read(output_path)
+        .with_context(|| format!("Cannot read {} for EXIF graft", output_path.display()))?;
+    let grafted = graft_exif_metadata(&encoded, source_stripped)?;
+    std::fs::write(output_path, grafted)
+        .with_context(|| format!("Cannot write EXIF graft to {}", output_path.display()))?;
+    Ok(())
+}
+
 /// Strip only GPS-related EXIF tags from image bytes.
 pub fn strip_gps_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if is_jpeg(bytes) {
         match rewrite_jpeg_exif_without_gps(bytes) {
             Ok(stripped) => Ok(stripped),
-            Err(_) => Ok(strip_jpeg_app_segments(bytes, |marker| marker == 0xE1)),
+            Err(_) => Ok(bytes.to_vec()),
         }
     } else if is_png(bytes) {
         rewrite_png_exif_without_gps(bytes)
@@ -396,13 +445,10 @@ fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
 
 fn rewrite_jpeg_exif_without_gps(jpeg: &[u8]) -> Result<Vec<u8>> {
     let mut i = 2_usize;
-    let mut out = Vec::with_capacity(jpeg.len());
-    out.extend_from_slice(&jpeg[0..2]);
 
     while i + 3 < jpeg.len() {
         if jpeg[i] != 0xFF {
-            out.extend_from_slice(&jpeg[i..]);
-            return Ok(out);
+            break;
         }
         let marker = jpeg[i + 1];
         let len = u16::from_be_bytes([jpeg[i + 2], jpeg[i + 3]]) as usize;
@@ -412,31 +458,282 @@ fn rewrite_jpeg_exif_without_gps(jpeg: &[u8]) -> Result<Vec<u8>> {
             let payload = &jpeg[i + 4..seg_end];
             if payload.starts_with(EXIF_HEADER) {
                 let tiff_data = &payload[EXIF_HEADER.len()..];
-                match strip_gps_from_tiff(tiff_data) {
-                    Ok(new_tiff) => {
-                        let new_payload_len = EXIF_HEADER.len() + new_tiff.len();
-                        let new_seg_len = (new_payload_len + 2) as u16;
-                        out.push(0xFF);
-                        out.push(0xE1);
-                        out.extend_from_slice(&new_seg_len.to_be_bytes());
-                        out.extend_from_slice(EXIF_HEADER);
-                        out.extend_from_slice(&new_tiff);
-                        i = seg_end;
-                        continue;
-                    }
-                    Err(_) => {
-                        i = seg_end;
-                        continue;
-                    }
-                }
+                let new_tiff = strip_gps_from_tiff(tiff_data)?;
+                return rewrite_jpeg_exif_segment(jpeg, &new_tiff);
             }
         }
 
-        out.extend_from_slice(&jpeg[i..seg_end]);
         i = seg_end;
     }
 
+    Ok(jpeg.to_vec())
+}
+
+fn rewrite_jpeg_exif_segment(jpeg: &[u8], new_tiff: &[u8]) -> Result<Vec<u8>> {
+    anyhow::ensure!(
+        jpeg.len() >= 2 && jpeg.starts_with(&[0xFF, 0xD8]),
+        "invalid JPEG"
+    );
+
+    let mut out = Vec::with_capacity(jpeg.len() + EXIF_HEADER.len() + new_tiff.len() + 4);
+    out.extend_from_slice(&jpeg[..2]); // SOI
+    let mut i = 2;
+    let mut inserted = false;
+
+    while i + 1 < jpeg.len() {
+        // Every metadata segment begins with 0xFF.
+        if jpeg[i] != 0xFF {
+            break;
+        }
+        let marker = jpeg[i + 1];
+
+        match marker {
+            // APP0..APP15 and COM are the only segments we walk through looking
+            // for EXIF. They all have a 2-byte length field.
+            0xE0..=0xEF | 0xFE => {
+                anyhow::ensure!(i + 4 <= jpeg.len(), "truncated JPEG segment");
+
+                let len = u16::from_be_bytes([jpeg[i + 2], jpeg[i + 3]]) as usize;
+                anyhow::ensure!(len >= 2, "invalid JPEG segment length");
+
+                let seg_end = i + 2 + len;
+                anyhow::ensure!(seg_end <= jpeg.len(), "truncated JPEG segment");
+
+                let payload = &jpeg[i + 4..seg_end];
+
+                if marker == 0xE1 && payload.starts_with(EXIF_HEADER) {
+                    // Replace existing EXIF.
+                    write_jpeg_app1_exif_segment(&mut out, new_tiff);
+                    inserted = true;
+                } else {
+                    out.extend_from_slice(&jpeg[i..seg_end]);
+                }
+                i = seg_end;
+            }
+
+            // First non-APP/COM marker: insert EXIF here (if needed) and then
+            // copy the remainder of the JPEG unchanged.
+            _ => {
+                if !inserted {
+                    write_jpeg_app1_exif_segment(&mut out, new_tiff);
+                }
+                out.extend_from_slice(&jpeg[i..]);
+                return Ok(out);
+            }
+        }
+    }
+    // Degenerate JPEG consisting only of SOI + APPn/COM segments.
+    if !inserted {
+        write_jpeg_app1_exif_segment(&mut out, new_tiff);
+    }
+
+    if i < jpeg.len() {
+        out.extend_from_slice(&jpeg[i..]);
+    }
     Ok(out)
+}
+
+fn write_jpeg_app1_exif_segment(out: &mut Vec<u8>, tiff: &[u8]) {
+    let payload_len = EXIF_HEADER.len() + tiff.len();
+    let seg_len = (payload_len + 2) as u16;
+    out.push(0xFF);
+    out.push(0xE1);
+    out.extend_from_slice(&seg_len.to_be_bytes());
+    out.extend_from_slice(EXIF_HEADER);
+    out.extend_from_slice(tiff);
+}
+
+fn inject_exif_into_jpeg(jpeg: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
+    rewrite_jpeg_exif_segment(jpeg, tiff)
+}
+
+fn inject_exif_into_png(png: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
+    if !is_png(png) {
+        return Ok(png.to_vec());
+    }
+
+    let without_exif = rewrite_png_chunks(png, |ctype, _| ctype != b"eXIf");
+
+    let mut rebuilt = Vec::with_capacity(without_exif.len() + 12 + tiff.len());
+    rebuilt.extend_from_slice(&without_exif[0..8]);
+
+    let mut i = 8;
+    let mut inserted = false;
+    while i + 12 <= without_exif.len() {
+        let len = u32::from_be_bytes([
+            without_exif[i],
+            without_exif[i + 1],
+            without_exif[i + 2],
+            without_exif[i + 3],
+        ]) as usize;
+        let chunk_end = i + 12 + len;
+        if chunk_end > without_exif.len() {
+            rebuilt.extend_from_slice(&without_exif[i..]);
+            break;
+        }
+
+        rebuilt.extend_from_slice(&without_exif[i..chunk_end]);
+
+        let ctype: [u8; 4] = without_exif[i + 4..i + 8].try_into().unwrap();
+        if !inserted && &ctype == b"IHDR" {
+            append_png_exif_chunk(&mut rebuilt, tiff);
+            inserted = true;
+        }
+
+        i = chunk_end;
+    }
+
+    if !inserted {
+        return Ok(png.to_vec());
+    }
+
+    Ok(rebuilt)
+}
+
+fn append_png_exif_chunk(out: &mut Vec<u8>, tiff: &[u8]) {
+    out.extend_from_slice(&(tiff.len() as u32).to_be_bytes());
+    out.extend_from_slice(b"eXIf");
+    out.extend_from_slice(tiff);
+    let mut crc_input = Vec::with_capacity(4 + tiff.len());
+    crc_input.extend_from_slice(b"eXIf");
+    crc_input.extend_from_slice(tiff);
+    out.extend_from_slice(&png_crc32(&crc_input).to_be_bytes());
+}
+
+fn inject_exif_into_webp(webp: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
+    let out = rebuild_webp_chunks(webp, |fourcc, payload| {
+        if fourcc == b"EXIF" {
+            Some(tiff.to_vec())
+        } else {
+            Some(payload.to_vec())
+        }
+    })
+    .ok_or_else(|| anyhow::anyhow!("WebP EXIF injection failed"))?;
+
+    if out.windows(4).any(|w| w == b"EXIF") {
+        return Ok(out);
+    }
+
+    let mut with_exif = Vec::with_capacity(out.len() + 8 + tiff.len());
+    with_exif.extend_from_slice(&out[0..12]);
+    with_exif.extend_from_slice(b"EXIF");
+    with_exif.extend_from_slice(&(tiff.len() as u32).to_le_bytes());
+    with_exif.extend_from_slice(tiff);
+    if tiff.len() % 2 != 0 {
+        with_exif.push(0);
+    }
+    with_exif.extend_from_slice(&out[12..]);
+    let riff_size = (with_exif.len() - 8) as u32;
+    with_exif[4..8].copy_from_slice(&riff_size.to_le_bytes());
+    Ok(with_exif)
+}
+
+fn extract_png_exif_tiff(png: &[u8]) -> Option<Vec<u8>> {
+    if !is_png(png) {
+        return None;
+    }
+
+    let mut i = 8;
+    while i + 12 <= png.len() {
+        let len = u32::from_be_bytes([png[i], png[i + 1], png[i + 2], png[i + 3]]) as usize;
+        let chunk_end = i + 12 + len;
+        if chunk_end > png.len() {
+            break;
+        }
+        let ctype: [u8; 4] = png[i + 4..i + 8].try_into().ok()?;
+        if &ctype == b"eXIf" {
+            return Some(png[i + 8..i + 8 + len].to_vec());
+        }
+        i = chunk_end;
+    }
+    None
+}
+
+fn extract_webp_exif_tiff(webp: &[u8]) -> Option<Vec<u8>> {
+    if !is_webp(webp) {
+        return None;
+    }
+
+    let file_size = u32::from_le_bytes([webp[4], webp[5], webp[6], webp[7]]) as usize;
+    let mut pos = 12;
+    let end = (8 + file_size).min(webp.len());
+
+    while pos + 8 <= end {
+        let fourcc: [u8; 4] = webp[pos..pos + 4].try_into().ok()?;
+        let size = u32::from_le_bytes([webp[pos + 4], webp[pos + 5], webp[pos + 6], webp[pos + 7]])
+            as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start + size;
+        if payload_end > webp.len() {
+            break;
+        }
+        if &fourcc == b"EXIF" {
+            return Some(webp[payload_start..payload_end].to_vec());
+        }
+        pos = payload_end;
+        if size % 2 != 0 {
+            pos += 1;
+        }
+    }
+    None
+}
+
+fn reset_orientation_in_tiff(tiff: &mut [u8]) {
+    if tiff.len() < 8 {
+        return;
+    }
+
+    let little_endian = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return,
+    };
+
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
+            if little_endian {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
+            if little_endian {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
+        let bytes = if little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
+        if o + 2 <= b.len() {
+            b[o..o + 2].copy_from_slice(&bytes);
+        }
+    };
+
+    let ifd_offset = match read_u32(tiff, 4) {
+        Some(o) => o as usize,
+        None => return,
+    };
+    let entry_count = match read_u16(tiff, ifd_offset) {
+        Some(c) => c as usize,
+        None => return,
+    };
+
+    for e in 0..entry_count {
+        let entry_offset = ifd_offset + 2 + e * 12;
+        if read_u16(tiff, entry_offset) == Some(0x0112) {
+            write_u16(tiff, entry_offset + 8, 1);
+            break;
+        }
+    }
 }
 
 fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
