@@ -17,7 +17,7 @@ mod tests {
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
     };
 
-     // ── read_orientation ──────────────────────────────────────────────────────
+    // ── read_orientation ──────────────────────────────────────────────────────
 
     #[test]
     fn orientation_little_endian_values() {
