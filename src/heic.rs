@@ -14,6 +14,25 @@ use libheif_rs::{
 };
 use std::path::Path;
 
+fn extract_heic_exif(raw: Vec<u8>) -> Option<Vec<u8>> {
+    if raw.len() < 4 {
+        return Some(raw);
+    }
+
+    let offset = u32::from_be_bytes([
+        raw[0],
+        raw[1],
+        raw[2],
+        raw[3],
+    ]) as usize;
+
+    if offset + 4 <= raw.len() {
+        Some(raw[4 + offset..].to_vec())
+    } else {
+        Some(raw[4..].to_vec())
+    }
+}
+
 /// Returns `true` when the file extension indicates HEIC or HEIF.
 pub fn is_heic(path: &Path) -> bool {
     matches!(
@@ -22,6 +41,23 @@ pub fn is_heic(path: &Path) -> bool {
             .map(|e| e.to_ascii_lowercase())
             .as_deref(),
         Some("heic") | Some("heif")
+    )
+}
+
+pub fn is_heic_bytes(bytes: &[u8]) -> bool {
+    // HEIF files contain:
+    // offset + "ftyp" + major brand
+    if bytes.len() < 12 {
+        return false;
+    }
+
+    if &bytes[4..8] != b"ftyp" {
+        return false;
+    }
+
+    matches!(
+        &bytes[8..12],
+        b"heic" | b"heix" | b"hevc" | b"heim" | b"heis" | b"mif1"
     )
 }
 
@@ -75,15 +111,7 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
         if count == 0 {
             None
         } else {
-            handle.metadata(id_buf[0]).ok().map(|raw| {
-                // libheif prefixes EXIF blocks with a 4-byte offset box;
-                // skip it to get a bare TIFF/EXIF block.
-                if raw.len() > 4 {
-                    raw[4..].to_vec()
-                } else {
-                    raw
-                }
-            })
+            handle.metadata(id_buf[0]).ok().and_then(extract_heic_exif)
         }
     };
 
@@ -132,7 +160,6 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
             RgbImage::from_raw(width, height, pixels).context("libheif: cannot build RgbImage")?,
         )
     };
-
     Ok((img, exif_bytes, meta))
 }
 
@@ -147,6 +174,7 @@ pub fn encode(
     path: &Path,
     compression: CompressionFormat,
     quality: Option<u8>,
+    exif_tiff: Option<&[u8]>,
 ) -> Result<()> {
     let lib = LibHeif::new();
 
@@ -228,8 +256,21 @@ pub fn encode(
 
     // ── Encode and write ─────────────────────────────────────────────────────
     let mut ctx = HeifContext::new().context("libheif: cannot create encoding context")?;
-    ctx.encode_image(&heif_img, &mut encoder, None)
+    let handle = ctx
+        .encode_image(&heif_img, &mut encoder, None)
         .context("libheif: encoding failed")?;
+
+    if let Some(exif) = exif_tiff {
+        let mut exif_block = Vec::with_capacity(exif.len() + 4);
+
+        // HEIF EXIF item starts with a 4-byte TIFF offset.
+        exif_block.extend_from_slice(&0u32.to_be_bytes());
+        exif_block.extend_from_slice(exif);
+
+        ctx.add_exif_metadata(&handle, &exif_block)
+            .context("libheif: cannot attach EXIF metadata")?;
+    }
+
     ctx.write_to_file(
         path.to_str()
             .context("HEIC output path is not valid UTF-8")?,

@@ -1,6 +1,6 @@
 [package]
 name = "bat_img_rs"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2024"
 authors = ["John Liu"]
 description = "A fast, multithreaded batch image processing CLI tool"
@@ -51,6 +51,7 @@ walkdir = "2"
 # Logging
 log = "0.4"
 env_logger = "0.11"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

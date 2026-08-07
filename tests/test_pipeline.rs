@@ -1,6 +1,7 @@
-/// Unit tests for bat_img_rs::pipeline
+/// Test bat_img_rs::pipeline
 #[cfg(test)]
 mod tests {
+    use bat_img_rs::processor::resolve_dimensions;
     use bat_img_rs::pipeline::parse_color;
     use image::Rgba;
 
@@ -110,49 +111,49 @@ mod tests {
 
     #[test]
     fn resize_spec_width_only() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(3840, 2160, 1920, 0);
+        let (w, h) = resolve_dimensions(3840, 2160, 1920, 0);
         assert_eq!(w, 1920);
         assert_eq!(h, 1080);
     }
 
     #[test]
     fn resize_spec_height_only() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(1920, 1080, 0, 1080);
+        let (w, h) = resolve_dimensions(1920, 1080, 0, 1080);
         assert_eq!(w, 1920);
         assert_eq!(h, 1080);
     }
 
     #[test]
     fn resize_spec_both_dimensions() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(4000, 3000, 800, 600);
+        let (w, h) = resolve_dimensions(4000, 3000, 800, 600);
         assert_eq!(w, 800);
         assert_eq!(h, 600);
     }
 
     #[test]
     fn resize_spec_zero_zero_passthrough() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(1920, 1080, 0, 0);
+        let (w, h) = resolve_dimensions(1920, 1080, 0, 0);
         assert_eq!(w, 1920);
         assert_eq!(h, 1080);
     }
 
     #[test]
     fn resize_spec_width_rounding() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(100, 75, 0, 50);
+        let (w, h) = resolve_dimensions(100, 75, 0, 50);
         assert_eq!(h, 50);
         assert_eq!(w, 67);
     }
 
     #[test]
     fn resize_spec_height_rounding() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(100, 75, 50, 0);
+        let (w, h) = resolve_dimensions(100, 75, 50, 0);
         assert_eq!(w, 50);
         assert_eq!(h, 38);
     }
 
     #[test]
     fn resize_spec_square_image() {
-        let (w, h) = bat_img_rs::processor::resolve_dimensions(500, 500, 200, 0);
+        let (w, h) = resolve_dimensions(500, 500, 200, 0);
         assert_eq!(w, 200);
         assert_eq!(h, 200);
     }
