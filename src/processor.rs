@@ -3,7 +3,6 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-// use crate::error::BatImgError;
 use crate::exif;
 use crate::heic;
 use crate::pipeline::Pipeline;
@@ -64,26 +63,15 @@ impl ProcessingContext {
             1
         };
 
-        // Strip metadata from non-HEIC files (HEIC pixels are already clean after
-        // re-encoding to JPEG/PNG/WebP; no in-place EXIF rewrite is needed).
-        let processed_bytes: Option<Vec<u8>> = if !is_heic {
-            if p.strip_all {
-                Some(exif::strip_all_metadata(&raw_bytes_for_exif)?)
-            } else if p.strip_gps {
-                Some(exif::strip_gps_metadata(&raw_bytes_for_exif)?)
-            } else {
-                None // use already-decoded img
-            }
-        } else {
+        let processed_exif: Option<Vec<u8>> = if p.strip_all {
             None
+        } else if p.strip_gps {
+            Some(exif::strip_gps_metadata(&raw_bytes_for_exif)?)
+        } else if raw_bytes_for_exif.is_empty() {
+            None
+        } else {
+            Some(raw_bytes_for_exif.clone())
         };
-
-        // Re-decode if we rewrote the bytes (non-HEIC strip path)
-        if let Some(ref stripped) = processed_bytes {
-            img = image::load_from_memory(stripped)
-                .or_else(|_| image::load_from_memory(&raw_bytes_for_exif))
-                .with_context(|| format!("Cannot decode stripped image: {}", input.display()))?;
-        }
 
         // ── Auto-orient from EXIF ────────────────────────────────────────────
         // Re-encoding JPEGs drops EXIF, so bake orientation into pixels whenever
@@ -151,15 +139,12 @@ impl ProcessingContext {
         }
 
         // ── Encode & save ────────────────────────────────────────────────────
-        self.save_image(&img, &output_path, heic_meta.as_ref())?;
+        self.save_image(&img, &output_path, heic_meta.as_ref(), processed_exif.as_deref())?;
 
-        // Re-encoding drops EXIF; graft GPS-stripped metadata back for --strip-gps.
-        if p.strip_gps && !p.strip_all && !is_heic {
-            if let Some(ref stripped) = processed_bytes {
-                exif::graft_exif_file(&output_path, stripped)?;
-            }
+        // Re-encoding for non-HEIC
+        if !is_heic && let Some(ref exif_bytes) = processed_exif {
+            exif::write_exif_file(&output_path, exif_bytes)?;
         }
-
         Ok(output_path)
     }
 
@@ -228,6 +213,7 @@ impl ProcessingContext {
         img: &DynamicImage,
         path: &PathBuf,
         heic_meta: Option<&heic::HeicMeta>,
+        exif: Option<&[u8]>,
     ) -> Result<()> {
         let p = &self.pipeline;
         let quality_or_default = p.quality.unwrap_or(90);
@@ -254,7 +240,7 @@ impl ProcessingContext {
             (path.clone(), false)
         };
 
-        let encode_result = self.encode_to(&write_path, img, &ext, quality_or_default, heic_meta);
+        let encode_result = self.encode_to(&write_path, img, &ext, quality_or_default, heic_meta, exif);
 
         if let Err(e) = encode_result {
             // Clean up the temp file if encoding failed
@@ -285,6 +271,7 @@ impl ProcessingContext {
         ext: &str,
         quality: u8,
         heic_meta: Option<&heic::HeicMeta>,
+        exif: Option<&[u8]>,
     ) -> Result<()> {
         let p = &self.pipeline;
 
@@ -294,7 +281,7 @@ impl ProcessingContext {
                 let compression = heic_meta
                     .map(|m| m.compression)
                     .unwrap_or(CompressionFormat::Hevc);
-                heic::encode(img, path, compression, p.quality)
+                heic::encode(img, path, compression, p.quality, exif)
                     .with_context(|| format!("HEIC encode failed for {}", path.display()))?;
             }
             "jpg" | "jpeg" => {

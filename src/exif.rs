@@ -5,6 +5,8 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
+use tempfile::tempdir;
+use crate::heic;
 
 // ── Format signatures ─────────────────────────────────────────────────────────
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
@@ -17,7 +19,27 @@ pub fn read_orientation(bytes: &[u8]) -> Option<u32> {
     parse_orientation_from_ifd(tiff)
 }
 
+pub fn strip_gps_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
+    if is_jpeg(bytes) {
+        match rewrite_jpeg_exif_without_gps(bytes) {
+            Ok(stripped) => Ok(stripped),
+            Err(_) => Ok(bytes.to_vec()),
+        }
+    } else if is_png(bytes) {
+        rewrite_png_exif_without_gps(bytes)
+    } else if is_tiff(bytes) {
+        strip_gps_from_tiff(bytes)
+    } else if is_webp(bytes) {
+        rewrite_webp_exif_without_gps(bytes)
+    } else if heic::is_heic_bytes(bytes) {
+        rewrite_heic_exif_without_gps(bytes)
+    } else {
+        Ok(bytes.to_vec())
+    }
+}
+
 /// Strip ALL metadata from image bytes.
+#[allow(dead_code)]
 pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if is_jpeg(bytes) {
         Ok(strip_jpeg_app_segments(bytes, |marker| marker != 0xE0))
@@ -28,7 +50,10 @@ pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     } else if is_tiff(bytes) {
         // Re-encoding TIFF drops most metadata; zero GPS pointer as a minimum.
         strip_gps_from_tiff(bytes)
+    } else if heic::is_heic_bytes(bytes) {
+        strip_all_heic_metadata(bytes)
     } else {
+
         Ok(bytes.to_vec())
     }
 }
@@ -51,7 +76,7 @@ pub fn extract_exif_tiff(bytes: &[u8]) -> Option<Vec<u8>> {
 /// Copy non-GPS EXIF from a GPS-stripped source image into freshly encoded output bytes.
 /// Orientation is reset to 1 because callers bake EXIF orientation into pixels before
 /// re-encoding. Returns the original output unchanged when the source has no EXIF.
-pub fn graft_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Vec<u8>> {
+pub fn rewrite_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Vec<u8>> {
     let Some(mut exif_tiff) = extract_exif_tiff(source_stripped) else {
         return Ok(output.to_vec());
     };
@@ -72,31 +97,13 @@ pub fn graft_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Vec<
 }
 
 /// Graft GPS-stripped EXIF from `source_stripped` into an on-disk encoded output file.
-pub fn graft_exif_file(output_path: &Path, source_stripped: &[u8]) -> Result<()> {
+pub fn write_exif_file(output_path: &Path, source_stripped: &[u8]) -> Result<()> {
     let encoded = std::fs::read(output_path)
         .with_context(|| format!("Cannot read {} for EXIF graft", output_path.display()))?;
-    let grafted = graft_exif_metadata(&encoded, source_stripped)?;
+    let grafted = rewrite_exif_metadata(&encoded, source_stripped)?;
     std::fs::write(output_path, grafted)
         .with_context(|| format!("Cannot write EXIF graft to {}", output_path.display()))?;
     Ok(())
-}
-
-/// Strip only GPS-related EXIF tags from image bytes.
-pub fn strip_gps_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
-    if is_jpeg(bytes) {
-        match rewrite_jpeg_exif_without_gps(bytes) {
-            Ok(stripped) => Ok(stripped),
-            Err(_) => Ok(bytes.to_vec()),
-        }
-    } else if is_png(bytes) {
-        rewrite_png_exif_without_gps(bytes)
-    } else if is_tiff(bytes) {
-        strip_gps_from_tiff(bytes)
-    } else if is_webp(bytes) {
-        rewrite_webp_exif_without_gps(bytes)
-    } else {
-        Ok(bytes.to_vec())
-    }
 }
 
 pub fn is_jpeg(bytes: &[u8]) -> bool {
@@ -119,6 +126,32 @@ pub fn is_webp(bytes: &[u8]) -> bool {
 }
 
 // ── JPEG helpers ──────────────────────────────────────────────────────────────
+fn rewrite_heic_exif_without_gps(bytes: &[u8]) -> Result<Vec<u8>> {
+    let tmp = tempdir()?;
+
+    let input = tmp.path().join("input.heic");
+    let output = tmp.path().join("output.heic");
+
+    std::fs::write(&input, bytes)?;
+
+    let (img, exif, meta) = heic::decode(&input)?;
+
+    let Some(exif) = exif else {
+        return Ok(bytes.to_vec());
+    };
+
+    let stripped_exif = strip_gps_from_tiff(&exif)?;
+
+    heic::encode(
+        &img,
+        &output,
+        meta.compression,
+        None,
+        Some(&stripped_exif),
+    )?;
+
+    Ok(std::fs::read(output)?)
+}
 
 fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
@@ -736,7 +769,7 @@ fn reset_orientation_in_tiff(tiff: &mut [u8]) {
     }
 }
 
-fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
+pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
     let mut buf = tiff.to_vec();
 
     if buf.len() < 8 {
@@ -797,4 +830,23 @@ fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
     }
 
     Ok(buf)
+}
+
+pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
+    let dir = tempfile::tempdir()?;
+
+    let input = dir.path().join("input.heic");
+    let output = dir.path().join("output.heic");
+
+    std::fs::write(&input, bytes)?;
+    let (img, _, meta) = crate::heic::decode(&input)?;
+
+    heic::encode(
+        &img,
+        &output,
+        meta.compression,
+        None,
+        None, // no EXIF
+    )?;
+    Ok(std::fs::read(output)?)
 }

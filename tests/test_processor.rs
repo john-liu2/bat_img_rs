@@ -1,9 +1,11 @@
-/// Integration tests for bat_img_rs image-processing operations.
-///
-/// These tests exercise the full per-file pipeline end-to-end by creating
-/// real temporary images on disk and running ProcessingContext::process().
+/// Test bat_img_rs::processor
+
+mod common;
+
 #[cfg(test)]
 mod tests {
+    use super::common::{solid_rgb, save_jpeg, save_png};
+
     use bat_img_rs::pipeline::{Pipeline, ResizeSpec};
     use bat_img_rs::processor::ProcessingContext;
     use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
@@ -11,39 +13,6 @@ mod tests {
     use std::sync::Arc;
     use tempfile::TempDir;
     use bat_img_rs::exif::{extract_exif_tiff, read_orientation, strip_gps_metadata};
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    /// Solid-colour RGB test image.
-    fn solid_rgb(w: u32, h: u32, r: u8, g: u8, b: u8) -> DynamicImage {
-        let mut img = RgbImage::new(w, h);
-        for pixel in img.pixels_mut() {
-            *pixel = image::Rgb([r, g, b]);
-        }
-        DynamicImage::ImageRgb8(img)
-    }
-
-    /// Save an image as JPEG and return its path.
-    fn save_jpeg(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
-        let path = dir.path().join(name);
-        let rgb = img.to_rgb8();
-        let mut f = std::fs::File::create(&path).unwrap();
-        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut f, 95);
-        enc.encode(
-            rgb.as_raw(),
-            rgb.width(),
-            rgb.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .unwrap();
-        path
-    }
-
-    /// Save an image as PNG and return its path.
-    fn save_png(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
-        let path = dir.path().join(name);
-        img.save(&path).unwrap();
-        path
-    }
 
     /// Build a minimal Pipeline with everything disabled, pointing output at `out_dir`.
     fn base_pipeline(out_dir: PathBuf) -> Pipeline {

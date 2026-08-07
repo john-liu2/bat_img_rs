@@ -13,8 +13,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-// use cli::Args;
-// use error::BatImgError;
 use pipeline::{build_pipeline, collect_input_files};
 use processor::ProcessingContext;
 
