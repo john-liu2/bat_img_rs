@@ -24,7 +24,7 @@ BIN_NAME := bat_img
 # ── Build ─────────────────────────────────────────────────────────────────────
 
 ## Build a wheel (current platform) + sdist
-dist:
+dist: clean
 	@echo "==> Building Rust binary (release-small) …"
 	cargo build --profile release-small
 	@echo ""

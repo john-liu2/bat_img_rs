@@ -24,13 +24,13 @@ import tarfile
 import zipfile
 from io import BytesIO
 from pathlib import Path
+import tomllib
 
-HERE         = Path(__file__).parent
+HERE         = Path(__file__).resolve().parent
 PACKAGE_NAME = "bat_img"
 PACKAGE_DIR  = "bat_img_cli"
 PYTHON_TAG   = "py3"
 ABI_TAG      = "none"
-VERSION      = "1.0.6"   # keep in sync with pyproject.toml
 
 PLATFORM_MAP = {
     "aarch64-apple-darwin":     "macosx_11_0_arm64",
@@ -40,6 +40,12 @@ PLATFORM_MAP = {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def cargo_version() -> str:
+    with (HERE.parent / "Cargo.toml").open("rb") as f:
+        return tomllib.load(f)["package"]["version"]
+
+VERSION = cargo_version()
 
 def wheel_filename(platform_tag):
     return f"{PACKAGE_NAME}-{VERSION}-{PYTHON_TAG}-{ABI_TAG}-{platform_tag}.whl"
