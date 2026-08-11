@@ -130,7 +130,7 @@ pub struct Args {
     pub prefix: String,
 
     // ── Processing ───────────────────────────────────────────────────────────
-    /// Number of threads to use (default: number of logical CPUs)
+    /// Number of threads to use (default: physical CPUs qty on macOS; logical CPUs qty on others)
     #[arg(short, long, default_value_t = num_cpus())]
     pub threads: usize,
 
@@ -199,7 +199,40 @@ pub fn parse() -> Args {
     Args::parse()
 }
 
+// on macOS, return the number of physical cores (not logical) to avoid oversubscription on Mx chips.
+// On other platforms, return the number of logical cores. Fallback to 4 if not detected.
+// macOS cmd: sysctl -n hw.perflevel0.physicalcpu
 fn num_cpus() -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        let performance_cores = std::process::Command::new("sysctl")
+            .args(["-n", "hw.perflevel0.physicalcpu"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|text| text.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0);
+
+        if let Some(n) = performance_cores {
+            return n;
+        }
+
+        // older macOS releases may not expose perflevel keys.
+        let physical_cores = std::process::Command::new("sysctl")
+            .args(["-n", "hw.physicalcpu"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .and_then(|text| text.trim().parse::<usize>().ok())
+            .filter(|&n| n > 0);
+
+        if let Some(n) = physical_cores {
+            return n;
+        }
+    }
+
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
