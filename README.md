@@ -2,6 +2,14 @@
 
 A fast, **multithreaded** batch image processing command line tool in Rust.
 
+## Supported Platforms
+
+| Platform | Architecture |
+|---|---|
+| macOS | Apple Silicon (M1 / M2 / M3 / M4 / ...) |
+| Linux | x86-64 (glibc 2.17+, compatible with most distros) |
+| Windows | x86-64 |
+
 ## Features
 
 | Feature | Flag |
