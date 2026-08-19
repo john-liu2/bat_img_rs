@@ -99,6 +99,7 @@ publish: check
 clean:
 	rm -rf $(PKG_DIR)/$(DIST_DIR)
 	rm -rf $(PKG_DIR)/*.egg-info
+	rm -rf target/release-small/$(BINARY_NAME) target/debug/$(BINARY_NAME)
 
 ## Show this help
 help:

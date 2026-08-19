@@ -51,8 +51,72 @@ mod tests {
         ctx.process().expect("processing failed")
     }
 
-    // ── Resize ────────────────────────────────────────────────────────────────
+    // ── Fast-Path Metadata Tests ──────────────────────────────────────────────
+    #[test]
+    fn fast_path_strip_gps_preserves_dimensions_and_removes_gps() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
 
+        // Plain image without orientation tag
+        let src = save_jpeg(&solid_rgb(100, 50, 0, 128, 0), &tmp, "photo.jpg");
+        let with_gps = inject_exif_with_make_and_gps(&std::fs::read(&src).unwrap());
+        std::fs::write(&src, &with_gps).unwrap();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.strip_gps = true;
+
+        let output = run(src, p);
+        let saved = std::fs::read(&output).unwrap();
+
+        // Check image remains decodable and dimensions unchanged
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.width(), 100);
+        assert_eq!(img.height(), 50);
+
+        // Check GPS offset removed via fast path
+        assert!(
+            !saved.windows(4).any(|w| w == 0x1234u32.to_le_bytes()),
+            "GPS offset should be removed by fast path"
+        );
+    }
+
+    #[test]
+    fn fast_path_strip_all_removes_exif_bytes() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_jpeg(&solid_rgb(80, 80, 255, 0, 0), &tmp, "photo.jpg");
+        let with_exif = inject_exif_with_make_and_gps(&std::fs::read(&src).unwrap());
+        std::fs::write(&src, &with_exif).unwrap();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.strip_all = true;
+
+        let output = run(src, p);
+        let saved = std::fs::read(&output).unwrap();
+
+        assert!(
+            !saved.windows(2).any(|w| w == [0xFF, 0xE1]),
+            "APP1 marker should be removed by fast path strip_all"
+        );
+    }
+
+    #[test]
+    fn fast_path_dry_run_does_not_write_file() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_jpeg(&solid_rgb(10, 10, 0, 0, 0), &tmp, "photo.jpg");
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.strip_gps = true;
+        p.dry_run = true;
+
+        let output = run(src, p);
+        assert!(!output.exists(), "Fast path dry-run must not create output file");
+    }
+
+    // ── Resize ────────────────────────────────────────────────────────────────
     #[test]
     fn resize_width_fixed_height_auto() {
         let tmp = TempDir::new().unwrap();
@@ -128,7 +192,6 @@ mod tests {
     }
 
     // ── Rotation ──────────────────────────────────────────────────────────────
-
     #[test]
     fn rotate_90_swaps_dimensions() {
         let tmp = TempDir::new().unwrap();
@@ -176,7 +239,6 @@ mod tests {
     }
 
     // ── Flip ──────────────────────────────────────────────────────────────────
-
     #[test]
     fn flip_horizontal_mirrors_pixels() {
         let tmp = TempDir::new().unwrap();
@@ -228,7 +290,6 @@ mod tests {
     }
 
     // ── Border ────────────────────────────────────────────────────────────────
-
     #[test]
     fn border_increases_dimensions() {
         let tmp = TempDir::new().unwrap();
@@ -265,7 +326,6 @@ mod tests {
     }
 
     // ── Grayscale ─────────────────────────────────────────────────────────────
-
     #[test]
     fn grayscale_output_has_equal_rgb_channels() {
         let tmp = TempDir::new().unwrap();
@@ -285,7 +345,6 @@ mod tests {
     }
 
     // ── Format conversion ─────────────────────────────────────────────────────
-
     #[test]
     fn jpeg_input_produces_jpeg_output_by_default() {
         let tmp = TempDir::new().unwrap();
@@ -360,7 +419,6 @@ mod tests {
     }
 
     // ── In-place mode ─────────────────────────────────────────────────────────
-
     #[test]
     fn in_place_mode_overwrites_original() {
         let tmp = TempDir::new().unwrap();
@@ -566,7 +624,6 @@ mod tests {
     }
 
     // ── Dry-run ───────────────────────────────────────────────────────────────
-
     #[test]
     fn dry_run_does_not_create_output_file() {
         let tmp = TempDir::new().unwrap();
@@ -581,7 +638,6 @@ mod tests {
     }
 
     // ── Overwrite guard ───────────────────────────────────────────────────────
-
     #[test]
     fn overwrite_false_skips_existing_output() {
         let tmp = TempDir::new().unwrap();
