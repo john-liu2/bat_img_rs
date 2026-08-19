@@ -297,18 +297,6 @@ pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Helper to locate the exact offset and length of the EXIF payload inside HEIC bytes.
-fn find_heic_exif_payload_range(bytes: &[u8]) -> Option<(usize, usize)> {
-    let (meta_start, meta_end) = find_heic_meta_bounds(bytes)?;
-    let meta_slice = &bytes[meta_start..meta_end];
-
-    let tiff_offset = find_tiff_header(meta_slice)?;
-    let abs_start = meta_start + tiff_offset;
-    let payload_len = meta_end.saturating_sub(abs_start);
-
-    Some((abs_start, payload_len))
-}
-
 fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
