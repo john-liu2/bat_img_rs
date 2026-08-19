@@ -50,7 +50,7 @@ check: dist
 # ── Local install ─────────────────────────────────────────────────────────────
 
 ## Install the local wheel into the active venv and run a smoke test
-install-local: dist
+install-local: check
 	@echo "==> Installing local wheel …"
 	$(PIP) install --force-reinstall $(PKG_DIR)/$(DIST_DIR)/*.whl
 	@echo ""

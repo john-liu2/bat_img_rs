@@ -7,6 +7,56 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use tempfile::tempdir;
 use crate::heic;
+use std::fs::File;
+use std::io::BufReader;
+
+#[derive(Debug, Default)]
+pub struct ExifInfo {
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub date_time: Option<String>,
+    pub iso: Option<String>,
+    pub exposure: Option<String>,
+    pub f_number: Option<String>,
+    pub focal_length: Option<String>,
+    pub gps_present: bool,
+}
+
+/// Parse EXIF metadata from an image file using `exif_lib`
+pub fn read_exif(path: &Path) -> Option<ExifInfo> {
+    let file = File::open(path).ok()?;
+    let mut bufreader = BufReader::new(file);
+
+    let exifreader = exif_lib::Reader::new()
+        .read_from_container(&mut bufreader)
+        .ok()?;
+
+    let mut info = ExifInfo::default();
+    let mut has_fields = false;
+
+    for field in exifreader.fields() {
+        has_fields = true;
+        let tag_name = field.tag.to_string();
+        let value = field.display_value().with_unit(&exifreader).to_string();
+
+        match tag_name.as_str() {
+            "Make" => info.make = Some(value),
+            "Model" => info.model = Some(value),
+            "DateTime" | "DateTimeOriginal" => info.date_time = Some(value),
+            "PhotographicSensitivity" | "ISOSpeedRatings" => info.iso = Some(value),
+            "ExposureTime" => info.exposure = Some(value),
+            "FNumber" => info.f_number = Some(value),
+            "FocalLength" => info.focal_length = Some(value),
+            tag if tag.starts_with("GPS") => info.gps_present = true,
+            _ => {}
+        }
+    }
+    if has_fields {
+        Some(info)
+    } else {
+        None
+    }
+}
 
 // ── Format signatures ─────────────────────────────────────────────────────────
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image

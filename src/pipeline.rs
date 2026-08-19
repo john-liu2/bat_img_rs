@@ -154,7 +154,7 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
     }
 
     Ok(Pipeline {
-        strip_gps: args.strip_gps || args.strip_all,
+        strip_gps: args.strip_gps,
         strip_all: args.strip_all,
         resize,
         no_upscale: args.no_upscale,

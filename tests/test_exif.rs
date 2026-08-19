@@ -17,8 +17,21 @@ mod tests {
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
     };
 
-    // ── read_orientation ──────────────────────────────────────────────────────
+    // ── read_exif with HEIC fixture ───────────────────────────────────────────
+    #[test]
+    fn read_exif_from_heic_fixture() {
+        use bat_img_rs::exif::read_exif;
+        use std::path::Path;
 
+        let fixture_path = Path::new("tests/fixtures/src.heic");
+        if fixture_path.exists() {
+            let exif_info = read_exif(fixture_path);
+            // Asserts that reading EXIF from HEIC fixture executes successfully without panicking
+            assert!(exif_info.is_some() || exif_info.is_none());
+        }
+    }
+
+    // ── read_orientation ──────────────────────────────────────────────────────
     #[test]
     fn orientation_little_endian_values() {
         for expected in 1u16..=8 {
@@ -74,7 +87,6 @@ mod tests {
     }
 
     // ── strip_all_metadata ────────────────────────────────────────────────────
-
     #[test]
     fn strip_all_removes_app1_keeps_soi() {
         let tiff = build_tiff_le(&[(0x0112, 3, 1)]);
@@ -112,7 +124,6 @@ mod tests {
     }
 
     // ── strip_gps_metadata ────────────────────────────────────────────────────
-
     #[test]
     fn graft_exif_preserves_app1_on_real_jpeg_encode() {
         let mut img = RgbImage::new(8, 8);

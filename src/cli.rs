@@ -49,6 +49,10 @@ pub struct Args {
     pub recursive: bool,
 
     // ── Metadata ─────────────────────────────────────────────────────────────
+    /// Display image metadata (dimensions, size, format) and exit
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub info: bool,
+
     /// Strip GPS location data from EXIF metadata
     #[arg(long, action = ArgAction::SetTrue)]
     pub strip_gps: bool,

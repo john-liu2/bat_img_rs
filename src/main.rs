@@ -40,6 +40,111 @@ fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    // ── Display Detailed Info & Exit ─────────────────────────────────────────
+    if args.info {
+        let total = files.len();
+        for (i, file) in files.iter().enumerate() {
+            // Separator between files
+            println!("{}", "─".repeat(60).dimmed());
+            println!(
+                "{} [{}/{}]",
+                file.display().to_string().bold().cyan(),
+                i + 1,
+                total
+            );
+            println!("{}", "─".repeat(60).dimmed());
+
+            // 1. File System Metadata
+            if let Ok(metadata) = std::fs::metadata(file) {
+                let bytes = metadata.len();
+                let readable_size = if bytes >= 1_048_576 {
+                    format!("{:.2} MB", bytes as f64 / 1_048_576.0)
+                } else if bytes >= 1024 {
+                    format!("{:.2} KB", bytes as f64 / 1024.0)
+                } else {
+                    format!("{} B", bytes)
+                };
+                println!(
+                    "  {:15} : {} ({})",
+                    "File Size".bold(),
+                    readable_size,
+                    format!("{} bytes", bytes).dimmed()
+                );
+            }
+
+            // 2. Format & Dimensions
+            let format_str = image::ImageFormat::from_path(file)
+                .map(|f| format!("{:?}", f))
+                .unwrap_or_else(|_| "Unknown".to_string());
+            println!("  {:15} : {}", "Format".bold(), format_str.yellow());
+
+            if let Ok(reader) = image::ImageReader::open(file) {
+                if let Ok(decoder) = reader.with_guessed_format() {
+                    if let Ok((w, h)) = decoder.into_dimensions() {
+                        let megapixels = (w as f64 * h as f64) / 1_000_000.0;
+                        println!(
+                            "  {:15} : {}x{} ({:.2} MP)",
+                            "Dimensions".bold(),
+                            w,
+                            h,
+                            megapixels
+                        );
+                    }
+                }
+            }
+            if let Ok(img) = image::open(file) {
+                println!("  {:15} : {:?}", "Color Type".bold(), img.color());
+            }
+
+            // 3. EXIF Data
+            println!("\n  {}", "[ EXIF Metadata ]".bold().underline());
+            if let Some(exif_data) = exif::read_exif(file) {
+                let mut found_any = false;
+
+                if let Some(ref make) = exif_data.make {
+                    println!("    {:17} : {}", "Make".dimmed(), make);
+                    found_any = true;
+                }
+                if let Some(ref model) = exif_data.model {
+                    println!("    {:17} : {}", "Model".dimmed(), model);
+                    found_any = true;
+                }
+                if let Some(ref date) = exif_data.date_time {
+                    println!("    {:17} : {}", "Date/Time".dimmed(), date);
+                    found_any = true;
+                }
+                if let Some(ref iso) = exif_data.iso {
+                    println!("    {:17} : ISO {}", "ISO Speed".dimmed(), iso);
+                    found_any = true;
+                }
+                if let Some(ref exp) = exif_data.exposure {
+                    println!("    {:17} : {} s", "Exposure".dimmed(), exp);
+                    found_any = true;
+                }
+                if let Some(ref f) = exif_data.f_number {
+                    println!("    {:17} : f/{}", "Aperture".dimmed(), f);
+                    found_any = true;
+                }
+                if let Some(ref fl) = exif_data.focal_length {
+                    println!("    {:17} : {}", "Focal Length".dimmed(), fl);
+                    found_any = true;
+                }
+                if exif_data.gps_present {
+                    println!("    {:17} : {}", "GPS Data".red(), "Present");
+                    found_any = true;
+                }
+
+                if !found_any {
+                    println!("    {}", "No standard camera tags found in EXIF.".dimmed());
+                }
+            } else {
+                println!("    {}", "None (or unreadable EXIF header)".dimmed());
+            }
+            println!(); // Blank spacing line between files
+        }
+        return Ok(());
+    }
+
     if !args.quiet {
         println!(
             "  {} {} file(s) found  |  {} thread(s)\n",
