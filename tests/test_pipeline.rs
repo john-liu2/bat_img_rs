@@ -5,8 +5,18 @@ mod tests {
     use bat_img_rs::pipeline::parse_color;
     use image::Rgba;
 
-    // ── parse_color ───────────────────────────────────────────────────────────
+    // ── --info CLI and Pipeline tests ─────────────────────────────────────────
+    #[test]
+    fn cli_parse_info_flag() {
+        use bat_img_rs::cli::Args;
+        use clap::Parser;
 
+        let args = Args::try_parse_from(["bat_img_rs", "-i", "tests/fixtures/src.heic", "--info"]).unwrap();
+        assert!(args.info);
+        assert_eq!(args.input, vec!["tests/fixtures/src.heic"]);
+    }
+
+    // ── parse_color ───────────────────────────────────────────────────────────
     #[test]
     fn color_named_white() {
         assert_eq!(parse_color("white").unwrap(), Rgba([255, 255, 255, 255]));

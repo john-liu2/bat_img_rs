@@ -5,8 +5,57 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
-use tempfile::tempdir;
 use crate::heic;
+use std::fs::File;
+use std::io::BufReader;
+
+#[derive(Debug, Default)]
+pub struct ExifInfo {
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub date_time: Option<String>,
+    pub iso: Option<String>,
+    pub exposure: Option<String>,
+    pub f_number: Option<String>,
+    pub focal_length: Option<String>,
+    pub gps_present: bool,
+}
+
+/// Parse EXIF metadata from an image file using `exif_lib`
+pub fn read_exif(path: &Path) -> Option<ExifInfo> {
+    let file = File::open(path).ok()?;
+    let mut bufreader = BufReader::new(file);
+
+    let exifreader = exif_lib::Reader::new()
+        .read_from_container(&mut bufreader)
+        .ok()?;
+
+    let mut info = ExifInfo::default();
+    let mut has_fields = false;
+
+    for field in exifreader.fields() {
+        has_fields = true;
+        let tag_name = field.tag.to_string();
+        let value = field.display_value().with_unit(&exifreader).to_string();
+
+        match tag_name.as_str() {
+            "Make" => info.make = Some(value),
+            "Model" => info.model = Some(value),
+            "DateTime" | "DateTimeOriginal" => info.date_time = Some(value),
+            "PhotographicSensitivity" | "ISOSpeedRatings" => info.iso = Some(value),
+            "ExposureTime" => info.exposure = Some(value),
+            "FNumber" => info.f_number = Some(value),
+            "FocalLength" => info.focal_length = Some(value),
+            tag if tag.starts_with("GPS") => info.gps_present = true,
+            _ => {}
+        }
+    }
+    if has_fields {
+        Some(info)
+    } else {
+        None
+    }
+}
 
 // ── Format signatures ─────────────────────────────────────────────────────────
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
@@ -19,18 +68,16 @@ pub fn read_orientation(bytes: &[u8]) -> Option<u32> {
     parse_orientation_from_ifd(tiff)
 }
 
+/// Fast byte-level GPS stripping across all supported image formats.
 pub fn strip_gps_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if is_jpeg(bytes) {
-        match rewrite_jpeg_exif_without_gps(bytes) {
-            Ok(stripped) => Ok(stripped),
-            Err(_) => Ok(bytes.to_vec()),
-        }
+        rewrite_jpeg_exif_without_gps(bytes)
     } else if is_png(bytes) {
         rewrite_png_exif_without_gps(bytes)
-    } else if is_tiff(bytes) {
-        strip_gps_from_tiff(bytes)
     } else if is_webp(bytes) {
         rewrite_webp_exif_without_gps(bytes)
+    } else if is_tiff(bytes) {
+        strip_gps_from_tiff(bytes)
     } else if heic::is_heic_bytes(bytes) {
         rewrite_heic_exif_without_gps(bytes)
     } else {
@@ -38,24 +85,43 @@ pub fn strip_gps_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-/// Strip ALL metadata from image bytes.
-#[allow(dead_code)]
+/// Fast byte-level complete metadata stripping across all supported image formats.
 pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if is_jpeg(bytes) {
+        // Strip APP1-APP15 metadata and COM comment segments, preserving APP0 (JFIF)
         Ok(strip_jpeg_app_segments(bytes, |marker| marker != 0xE0))
     } else if is_png(bytes) {
+        // Strip metadata chunks: eXIf, tEXt, zTXt, iTXt, iCCP
         Ok(strip_png_metadata(bytes))
     } else if is_webp(bytes) {
-        Ok(strip_webp_exif(bytes))
+        // Strip EXIF, XMP, and ICCP chunks from WebP RIFF stream
+        Ok(strip_webp_metadata(bytes))
     } else if is_tiff(bytes) {
-        // Re-encoding TIFF drops most metadata; zero GPS pointer as a minimum.
+        // Zero out GPS and metadata IFD pointers in place
         strip_gps_from_tiff(bytes)
     } else if heic::is_heic_bytes(bytes) {
         strip_all_heic_metadata(bytes)
     } else {
-
         Ok(bytes.to_vec())
     }
+}
+// ── PNG Metadata Fast Path ───────────────────────────────────────────────────
+fn strip_png_metadata(png: &[u8]) -> Vec<u8> {
+    rewrite_png_chunks(png, |ctype, _| {
+        !matches!(ctype, b"eXIf" | b"tEXt" | b"zTXt" | b"iTXt" | b"iCCP")
+    })
+}
+
+// ── WebP Metadata Fast Path ──────────────────────────────────────────────────
+fn strip_webp_metadata(webp: &[u8]) -> Vec<u8> {
+    rebuild_webp_chunks(webp, |fourcc, payload| {
+        if matches!(fourcc, b"EXIF" | b"XMP " | b"ICCP") {
+            None
+        } else {
+            Some(payload.to_vec())
+        }
+    })
+    .unwrap_or_else(|| webp.to_vec())
 }
 
 /// Extract the raw TIFF/EXIF block from any supported image container.
@@ -125,32 +191,110 @@ pub fn is_webp(bytes: &[u8]) -> bool {
         && &bytes[8..12] == b"WEBP"
 }
 
-// ── JPEG helpers ──────────────────────────────────────────────────────────────
+// ── HEIC, JPG Helpers ──────────────────────────────────────────────────────────────
+// Fast byte-level stripping for HEIC meta box without pixel re-encoding
 fn rewrite_heic_exif_without_gps(bytes: &[u8]) -> Result<Vec<u8>> {
-    let tmp = tempdir()?;
+    // Extract raw EXIF payload from HEIC container, modify TIFF header in-place,
+    // and write back to the ISOBMFF meta atom.
+    if let Some(exif_tiff) = extract_heic_exif_raw(bytes) {
+        let stripped_tiff = strip_gps_from_tiff(&exif_tiff)?;
+        return replace_heic_exif_payload(bytes, &stripped_tiff);
+    }
+    Ok(bytes.to_vec())
+}
 
-    let input = tmp.path().join("input.heic");
-    let output = tmp.path().join("output.heic");
+/// Extract the raw TIFF payload from a HEIC container.
+pub fn extract_heic_exif_raw(bytes: &[u8]) -> Option<Vec<u8>> {
+    let tiff_offset = find_tiff_header(bytes)?;
+    Some(bytes[tiff_offset..].to_vec())
+}
 
-    std::fs::write(&input, bytes)?;
-
-    let (img, exif, meta) = heic::decode(&input)?;
-
-    let Some(exif) = exif else {
+/// Replace the EXIF TIFF payload inside a HEIC file in-place.
+pub fn replace_heic_exif_payload(bytes: &[u8], new_tiff: &[u8]) -> Result<Vec<u8>> {
+    let Some(tiff_offset) = find_tiff_header(bytes) else {
         return Ok(bytes.to_vec());
     };
 
-    let stripped_exif = strip_gps_from_tiff(&exif)?;
+    let mut out = bytes.to_vec();
 
-    heic::encode(
-        &img,
-        &output,
-        meta.compression,
-        None,
-        Some(&stripped_exif),
-    )?;
+    if tiff_offset + new_tiff.len() <= out.len() {
+        out[tiff_offset..tiff_offset + new_tiff.len()].copy_from_slice(new_tiff);
+    }
+    Ok(out)
+}
 
-    Ok(std::fs::read(output)?)
+// ── Private HEIC Helpers ─────────────────────────────────────────────────────
+
+/// Walk top-level ISOBMFF boxes to locate the (start, end) payload bounds of the 'meta' box.
+fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut pos = 0;
+
+    while pos + 8 <= bytes.len() {
+        let mut box_size = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]) as usize;
+        let box_type = &bytes[pos + 4..pos + 8];
+
+        let header_len = if box_size == 1 {
+            if pos + 16 > bytes.len() { break; }
+            box_size = u64::from_be_bytes([
+                bytes[pos + 8],  bytes[pos + 9],  bytes[pos + 10], bytes[pos + 11],
+                bytes[pos + 12], bytes[pos + 13], bytes[pos + 14], bytes[pos + 15],
+            ]) as usize;
+            16
+        } else if box_size == 0 {
+            bytes.len() - pos
+        } else {
+            8
+        };
+
+        if box_size < header_len || pos.checked_add(box_size).map_or(true, |end| end > bytes.len()) {
+            break;
+        }
+
+        if box_type == b"meta" {
+            return Some((pos + header_len, pos + box_size));
+        }
+
+        pos += box_size;
+    }
+
+    None
+}
+
+/// Locate the TIFF header magic bytes within a byte slice.
+fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    for i in 0..=bytes.len() - 4 {
+        if &bytes[i..i + 4] == b"II\x2A\x00" || &bytes[i..i + 4] == b"MM\x00\x2A" {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Complete HEIC metadata removal without breaking container structural boxes (pitm, iloc, iinf).
+pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut out = bytes.to_vec();
+
+    // 1. Zero out all TIFF header magic bytes and EXIF payload markers
+    while let Some(offset) = find_tiff_header(&out) {
+        // Zero out the TIFF magic bytes and following payload window
+        let end = (offset + 1024).min(out.len());
+        out[offset..end].fill(0);
+    }
+
+    // 2. Unlink 'Exif' item tokens inside the 'meta' container box
+    if let Some((meta_start, meta_end)) = find_heic_meta_bounds(&out) {
+        let meta_slice = &mut out[meta_start..meta_end];
+        for i in 0..meta_slice.len().saturating_sub(4) {
+            if &meta_slice[i..i + 4] == b"Exif" {
+                meta_slice[i..i + 4].copy_from_slice(b"free");
+            }
+        }
+    }
+
+    Ok(out)
 }
 
 fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> Vec<u8> {
@@ -202,10 +346,9 @@ fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> 
 }
 
 // ── PNG helpers ───────────────────────────────────────────────────────────────
-
-fn strip_png_metadata(png: &[u8]) -> Vec<u8> {
-    rewrite_png_chunks(png, |ctype, _| ctype != b"eXIf")
-}
+// fn strip_png_metadata(png: &[u8]) -> Vec<u8> {
+//     rewrite_png_chunks(png, |ctype, _| ctype != b"eXIf")
+// }
 
 fn rewrite_png_exif_without_gps(png: &[u8]) -> Result<Vec<u8>> {
     let mut out = png.to_vec();
@@ -319,17 +462,16 @@ fn png_crc32(data: &[u8]) -> u32 {
 }
 
 // ── WebP helpers ──────────────────────────────────────────────────────────────
-
-fn strip_webp_exif(webp: &[u8]) -> Vec<u8> {
-    rebuild_webp_chunks(webp, |fourcc, payload| {
-        if fourcc == b"EXIF" {
-            None
-        } else {
-            Some(payload.to_vec())
-        }
-    })
-    .unwrap_or_else(|| webp.to_vec())
-}
+// fn strip_webp_exif(webp: &[u8]) -> Vec<u8> {
+//     rebuild_webp_chunks(webp, |fourcc, payload| {
+//         if fourcc == b"EXIF" {
+//             None
+//         } else {
+//             Some(payload.to_vec())
+//         }
+//     })
+//     .unwrap_or_else(|| webp.to_vec())
+// }
 
 fn rewrite_webp_exif_without_gps(webp: &[u8]) -> Result<Vec<u8>> {
     rebuild_webp_chunks(webp, |fourcc, payload| {
@@ -830,23 +972,4 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
     }
 
     Ok(buf)
-}
-
-pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
-    let dir = tempfile::tempdir()?;
-
-    let input = dir.path().join("input.heic");
-    let output = dir.path().join("output.heic");
-
-    std::fs::write(&input, bytes)?;
-    let (img, _, meta) = crate::heic::decode(&input)?;
-
-    heic::encode(
-        &img,
-        &output,
-        meta.compression,
-        None,
-        None, // no EXIF
-    )?;
-    Ok(std::fs::read(output)?)
 }

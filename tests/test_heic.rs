@@ -9,6 +9,7 @@ mod tests {
 
     use bat_img_rs::heic;
     use bat_img_rs::exif::{
+        extract_heic_exif_raw,
         extract_exif_tiff,
         strip_gps_from_tiff,
         strip_gps_metadata,
@@ -17,7 +18,60 @@ mod tests {
     use image::{DynamicImage, RgbImage};
     use tempfile::tempdir;
     use libheif_rs::CompressionFormat;
+    use std::path::Path;
 
+    const HEIC_FIXTURE: &str = "tests/fixtures/src.heic";
+
+    // ── Fixture Container Integration Tests ───────────────────────────────────
+    #[test]
+    fn fixture_heic_extract_exif_bytes() {
+        let fixture = Path::new(HEIC_FIXTURE);
+        if !fixture.exists() {
+            return;
+        }
+
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let extracted = extract_heic_exif_raw(&raw_bytes);
+        assert!(
+            extracted.is_some(),
+            "Fixture HEIC should contain an EXIF metadata block"
+        );
+    }
+
+    #[test]
+    fn fixture_heic_fast_path_strip_gps() {
+        let fixture = Path::new(HEIC_FIXTURE);
+        if !fixture.exists() {
+            return;
+        }
+
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let stripped_bytes = strip_gps_metadata(&raw_bytes).expect("GPS strip failed on HEIC fixture");
+
+        // Fast path preserves exact file byte size
+        assert_eq!(raw_bytes.len(), stripped_bytes.len());
+        assert!(heic::is_heic_bytes(&stripped_bytes));
+    }
+
+    #[test]
+    fn fixture_heic_fast_path_strip_all() {
+        let fixture = Path::new(HEIC_FIXTURE);
+        if !fixture.exists() {
+            return;
+        }
+
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let stripped_bytes = strip_all_metadata(&raw_bytes).expect("Strip all failed on HEIC fixture");
+
+        assert_eq!(raw_bytes.len(), stripped_bytes.len());
+        assert!(heic::is_heic_bytes(&stripped_bytes));
+
+        // TIFF header magic bytes must no longer exist in the output
+        assert!(!stripped_bytes.windows(4).any(|w| w == b"II\x2A\x00"));
+        assert!(!stripped_bytes.windows(4).any(|w| w == b"MM\x00\x2A"));
+    }
+
+    // ── Synthetic HEIC Tests ──────────────────────────────────────────────────
     #[test]
     fn tiff_exif_strip_gps_preserves_non_gps_tags() {
         let tiff = build_tiff_with_gps(0x1234);

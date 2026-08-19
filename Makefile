@@ -50,7 +50,7 @@ check: dist
 # ── Local install ─────────────────────────────────────────────────────────────
 
 ## Install the local wheel into the active venv and run a smoke test
-install-local: dist
+install-local: check
 	@echo "==> Installing local wheel …"
 	$(PIP) install --force-reinstall $(PKG_DIR)/$(DIST_DIR)/*.whl
 	@echo ""
@@ -99,6 +99,7 @@ publish: check
 clean:
 	rm -rf $(PKG_DIR)/$(DIST_DIR)
 	rm -rf $(PKG_DIR)/*.egg-info
+	rm -rf target/release-small/$(BINARY_NAME) target/debug/$(BINARY_NAME)
 
 ## Show this help
 help:

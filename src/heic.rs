@@ -16,7 +16,7 @@ use std::path::Path;
 
 fn extract_heic_exif(raw: Vec<u8>) -> Option<Vec<u8>> {
     if raw.len() < 4 {
-        return Some(raw);
+        return None;
     }
 
     let offset = u32::from_be_bytes([
@@ -26,10 +26,16 @@ fn extract_heic_exif(raw: Vec<u8>) -> Option<Vec<u8>> {
         raw[3],
     ]) as usize;
 
-    if offset + 4 <= raw.len() {
-        Some(raw[4 + offset..].to_vec())
+    let payload = if offset + 4 <= raw.len() {
+        &raw[4 + offset..]
     } else {
-        Some(raw[4..].to_vec())
+        &raw[4..]
+    };
+
+    if payload.len() >= 4 && (payload.starts_with(b"II\x2A\x00") || payload.starts_with(b"MM\x00\x2A")) {
+        Some(payload.to_vec())
+    } else {
+        None
     }
 }
 

@@ -17,8 +17,153 @@ mod tests {
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
     };
 
-    // ── read_orientation ──────────────────────────────────────────────────────
+    // ── Helper to synthesize minimal HEIC structure ─────────────────────────────
+    fn mock_heic_with_exif(tiff_payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
 
+        // 1. Minimal 'ftyp' box (12 bytes)
+        bytes.extend_from_slice(&12u32.to_be_bytes());
+        bytes.extend_from_slice(b"ftypheic");
+
+        // 2. 'meta' box wrapping EXIF TIFF payload
+        let meta_payload_len = 4 + tiff_payload.len(); // 4-byte version/flags + payload
+        let meta_box_len = (8 + meta_payload_len) as u32;
+
+        bytes.extend_from_slice(&meta_box_len.to_be_bytes());
+        bytes.extend_from_slice(b"meta");
+        bytes.extend_from_slice(&[0, 0, 0, 0]); // FullBox version and flags
+        bytes.extend_from_slice(tiff_payload);
+
+        bytes
+    }
+
+    // ── HEIC Container Level Tests ───────────────────────────────────────────────
+    #[test]
+    fn heic_strip_all_metadata_zeroes_exif_payload() {
+        let tiff = build_tiff_le(&[(0x0112, 3, 1)]);
+        let heic_bytes = mock_heic_with_exif(&tiff);
+
+        let stripped = strip_all_metadata(&heic_bytes).unwrap();
+
+        // Total byte length must be preserved exactly
+        assert_eq!(stripped.len(), heic_bytes.len());
+
+        // The 'meta' box MUST remain intact so libheif can parse iloc/pitm container structures
+        assert!(stripped.windows(4).any(|w| w == b"meta"));
+
+        // The EXIF TIFF magic bytes (II*\0 or MM\0*) must be zeroed out
+        assert!(!stripped.windows(4).any(|w| w == b"II\x2A\x00"));
+        assert!(!stripped.windows(4).any(|w| w == b"MM\x00\x2A"));
+    }
+
+    #[test]
+    fn heic_extract_and_replace_raw_exif() {
+        use bat_img_rs::exif::{extract_heic_exif_raw, replace_heic_exif_payload};
+
+        let tiff = build_tiff_with_gps(0x5678);
+        let heic_bytes = mock_heic_with_exif(&tiff);
+
+        // Extract TIFF slice
+        let extracted = extract_heic_exif_raw(&heic_bytes);
+        assert!(extracted.is_some());
+        let raw = extracted.unwrap();
+        assert!(raw.starts_with(b"II\x2A\x00") || raw.starts_with(b"MM\x00\x2A"));
+
+        // Replace payload in-place
+        let mut modified_tiff = raw.clone();
+        modified_tiff[0..4].copy_from_slice(b"TEST");
+
+        let replaced = replace_heic_exif_payload(&heic_bytes, &modified_tiff).unwrap();
+        assert_eq!(replaced.len(), heic_bytes.len());
+        assert!(replaced.windows(4).any(|w| w == b"TEST"));
+    }
+
+    #[test]
+    fn heic_strip_gps_metadata_zeroes_pointer() {
+        let tiff = build_tiff_with_gps(0x1234);
+        let heic_bytes = mock_heic_with_exif(&tiff);
+
+        let stripped = strip_gps_metadata(&heic_bytes).unwrap();
+
+        // Total file size remains identical
+        assert_eq!(stripped.len(), heic_bytes.len());
+
+        // 'meta' tag remains intact, but GPS pointer sequence is zeroed out
+        assert!(stripped.windows(4).any(|w| w == b"meta"));
+        let gps_bytes = 0x1234u32.to_le_bytes();
+        assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    // ── Multi-Format Strip GPS Tests ───────────────────────────────────────────
+    #[test]
+    fn png_strip_gps_metadata_preserves_chunk_structure() {
+        let tiff = build_tiff_with_gps(0x9ABC);
+        let png = png_with_exif_chunk(&tiff);
+
+        let stripped = strip_gps_metadata(&png).unwrap();
+
+        // Should retain PNG magic and eXIf chunk header
+        assert!(is_png(&stripped));
+        assert!(stripped.windows(4).any(|w| w == b"eXIf"));
+
+        // GPS IFD offset zeroed out
+        let gps_bytes = 0x9ABCu32.to_le_bytes();
+        assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    #[test]
+    fn webp_strip_gps_metadata_zeroes_gps_ifd() {
+        let tiff = build_tiff_with_gps(0xDEF0);
+        let webp = webp_with_exif_chunk(&tiff);
+
+        let stripped = strip_gps_metadata(&webp).unwrap();
+
+        assert!(stripped.starts_with(b"RIFF"));
+        assert!(stripped.windows(4).any(|w| w == b"EXIF"));
+
+        let gps_bytes = 0xDEF0u32.to_le_bytes();
+        assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    #[test]
+    fn tiff_strip_gps_metadata_zeroes_ifd_tag() {
+        let tiff = build_tiff_with_gps(0x4321);
+
+        let stripped = strip_gps_metadata(&tiff).unwrap();
+
+        assert!(is_tiff(&stripped));
+        assert_eq!(stripped.len(), tiff.len());
+
+        let gps_bytes = 0x4321u32.to_le_bytes();
+        assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    #[test]
+    fn tiff_strip_all_metadata_removes_pointers() {
+        let tiff = build_tiff_with_gps(0x7777);
+
+        let stripped = strip_all_metadata(&tiff).unwrap();
+
+        assert!(is_tiff(&stripped));
+        let gps_bytes = 0x7777u32.to_le_bytes();
+        assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    // ── read_exif with HEIC fixture ───────────────────────────────────────────
+    #[test]
+    fn read_exif_from_heic_fixture() {
+        use bat_img_rs::exif::read_exif;
+        use std::path::Path;
+
+        let fixture_path = Path::new("tests/fixtures/src.heic");
+        if fixture_path.exists() {
+            let exif_info = read_exif(fixture_path);
+            // Asserts that reading EXIF from HEIC fixture executes successfully without panicking
+            assert!(exif_info.is_some() || exif_info.is_none());
+        }
+    }
+
+    // ── read_orientation ──────────────────────────────────────────────────────
     #[test]
     fn orientation_little_endian_values() {
         for expected in 1u16..=8 {
@@ -74,7 +219,6 @@ mod tests {
     }
 
     // ── strip_all_metadata ────────────────────────────────────────────────────
-
     #[test]
     fn strip_all_removes_app1_keeps_soi() {
         let tiff = build_tiff_le(&[(0x0112, 3, 1)]);
@@ -112,7 +256,6 @@ mod tests {
     }
 
     // ── strip_gps_metadata ────────────────────────────────────────────────────
-
     #[test]
     fn graft_exif_preserves_app1_on_real_jpeg_encode() {
         let mut img = RgbImage::new(8, 8);

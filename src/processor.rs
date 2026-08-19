@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
 use std::path::PathBuf;
 use std::sync::Arc;
-
+use std::fs;
 use crate::exif;
 use crate::heic;
 use crate::pipeline::Pipeline;
@@ -13,10 +13,58 @@ pub struct ProcessingContext {
 }
 
 impl ProcessingContext {
+    /// Fast path: operates directly on raw file bytes without decoding/re-encoding pixels.
+    fn process_metadata_fast_path(&self, raw_bytes: Vec<u8>) -> Result<std::path::PathBuf> {
+        let target_path = self.output_path()?;
+        if self.pipeline.dry_run {
+            return Ok(target_path);
+        }
+
+        let cleaned_bytes = if self.pipeline.strip_all {
+            exif::strip_all_metadata(&raw_bytes)?
+        } else if self.pipeline.strip_gps {
+            exif::strip_gps_metadata(&raw_bytes)?
+        } else {
+            raw_bytes
+        };
+
+        let out_dir = target_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let mut temp_file = tempfile::NamedTempFile::new_in(out_dir)?;
+        std::io::Write::write_all(&mut temp_file, &cleaned_bytes)?;
+        temp_file
+            .persist(&target_path)
+            .with_context(|| format!("Failed to write output file: {}", target_path.display()))?;
+
+        Ok(target_path)
+    }
+
     pub fn process(&self) -> Result<PathBuf> {
         let p = &self.pipeline;
-        let input = &self.input_path;
+        // Detect if this job is strictly a metadata stripping operation
+        let is_metadata_only = (p.strip_all || p.strip_gps)
+            && p.resize.is_none()
+            && p.rotate.is_none()
+            && !p.flip_h
+            && !p.flip_v
+            && p.border_px.is_none()
+            && p.brightness.is_none()
+            && p.contrast.is_none()
+            && !p.sharpen
+            && !p.grayscale
+            && p.output_format.is_none();
 
+        if is_metadata_only {
+            let raw_bytes = fs::read(&self.input_path)
+                .with_context(|| format!("Failed to read input file: {}", self.input_path.display()))?;
+
+            // Fast path for unoriented photos; fall back to full decoding if orientation needs pixel rotation
+            let has_orientation = exif::read_orientation(&raw_bytes).map_or(false, |o| o != 1);
+            if !has_orientation {
+                return self.process_metadata_fast_path(raw_bytes);
+            }
+        }
+
+        let input = &self.input_path;
         // ── Determine output path ────────────────────────────────────────────
         let output_path = self.output_path()?;
 
