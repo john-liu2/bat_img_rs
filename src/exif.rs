@@ -6,8 +6,14 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 use crate::heic;
-use std::fs::File;
-use std::io::BufReader;
+// use std::fs::File;
+// use std::io::BufReader;
+use exif_lib::{In, Reader, Tag};
+
+// Format signatures
+const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
+const EXIF_HEADER: &[u8] = b"Exif\x00\x00";
+const PNG_SIG: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
 
 #[derive(Debug, Default)]
 pub struct ExifInfo {
@@ -21,46 +27,53 @@ pub struct ExifInfo {
     pub gps_present: bool,
 }
 
-/// Parse EXIF metadata from an image file using `exif_lib`
+/// Read EXIF metadata from a file path (supporting JPEG, TIFF, and HEIC).
 pub fn read_exif(path: &Path) -> Option<ExifInfo> {
-    let file = File::open(path).ok()?;
-    let mut bufreader = BufReader::new(file);
+    let raw_bytes = std::fs::read(path).ok()?;
 
-    let exifreader = exif_lib::Reader::new()
-        .read_from_container(&mut bufreader)
+    // 1. Try reading directly as a HEIC container first
+    let tiff_bytes = if let Some(extracted) = extract_heic_exif_raw(&raw_bytes) {
+        extracted
+    } else {
+        raw_bytes
+    };
+    // 2. Parse EXIF using Reader::read_raw with fallback to read_from_container
+    let exif_data = Reader::new()
+        .read_raw(tiff_bytes.clone())
+        .or_else(|_| Reader::new().read_from_container(&mut std::io::Cursor::new(&tiff_bytes)))
         .ok()?;
 
     let mut info = ExifInfo::default();
-    let mut has_fields = false;
 
-    for field in exifreader.fields() {
-        has_fields = true;
-        let tag_name = field.tag.to_string();
-        let value = field.display_value().with_unit(&exifreader).to_string();
-
-        match tag_name.as_str() {
-            "Make" => info.make = Some(value),
-            "Model" => info.model = Some(value),
-            "DateTime" | "DateTimeOriginal" => info.date_time = Some(value),
-            "PhotographicSensitivity" | "ISOSpeedRatings" => info.iso = Some(value),
-            "ExposureTime" => info.exposure = Some(value),
-            "FNumber" => info.f_number = Some(value),
-            "FocalLength" => info.focal_length = Some(value),
-            tag if tag.starts_with("GPS") => info.gps_present = true,
-            _ => {}
-        }
+    if let Some(field) = exif_data.get_field(Tag::Make, In::PRIMARY) {
+        info.make = Some(field.display_value().to_string().trim_matches('"').to_string());
     }
-    if has_fields {
-        Some(info)
-    } else {
-        None
+    if let Some(field) = exif_data.get_field(Tag::Model, In::PRIMARY) {
+        info.model = Some(field.display_value().to_string().trim_matches('"').to_string());
     }
+    if let Some(field) = exif_data.get_field(Tag::DateTime, In::PRIMARY) {
+        info.date_time = Some(field.display_value().to_string().trim_matches('"').to_string());
+    }
+    if let Some(field) = exif_data.get_field(Tag::PhotographicSensitivity, In::PRIMARY) {
+        info.iso = Some(field.display_value().to_string());
+    }
+    if let Some(field) = exif_data.get_field(Tag::ExposureTime, In::PRIMARY) {
+        info.exposure = Some(field.display_value().to_string());
+    }
+    if let Some(field) = exif_data.get_field(Tag::FNumber, In::PRIMARY) {
+        info.f_number = Some(field.display_value().to_string());
+    }
+    if let Some(field) = exif_data.get_field(Tag::FocalLength, In::PRIMARY) {
+        info.focal_length = Some(field.display_value().to_string());
+    }
+    if exif_data.get_field(Tag::GPSLatitude, In::PRIMARY).is_some()
+        || exif_data.get_field(Tag::GPSInfoIFDPointer, In::PRIMARY).is_some()
+        || exif_data.get_field(Tag::GPSVersionID, In::PRIMARY).is_some()
+    {
+        info.gps_present = true;
+    }
+    Some(info)
 }
-
-// ── Format signatures ─────────────────────────────────────────────────────────
-const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
-const EXIF_HEADER: &[u8] = b"Exif\x00\x00";
-const PNG_SIG: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
 
 /// Read the EXIF orientation tag (tag 0x0112) from any supported image container.
 pub fn read_orientation(bytes: &[u8]) -> Option<u32> {
@@ -203,20 +216,19 @@ fn rewrite_heic_exif_without_gps(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
-/// Extract the raw TIFF payload from a HEIC container.
+/// Extract raw TIFF bytes from any container by searching for valid TIFF headers.
 pub fn extract_heic_exif_raw(bytes: &[u8]) -> Option<Vec<u8>> {
     let tiff_offset = find_tiff_header(bytes)?;
     Some(bytes[tiff_offset..].to_vec())
 }
 
-/// Replace the EXIF TIFF payload inside a HEIC file in-place.
-pub fn replace_heic_exif_payload(bytes: &[u8], new_tiff: &[u8]) -> Result<Vec<u8>> {
+/// Replace the EXIF TIFF payload inside a HEIC file in-place and zero-fill trailing bytes.
+pub fn replace_heic_exif_payload(bytes: &[u8], new_tiff: &[u8]) -> anyhow::Result<Vec<u8>> {
     let Some(tiff_offset) = find_tiff_header(bytes) else {
         return Ok(bytes.to_vec());
     };
 
     let mut out = bytes.to_vec();
-
     if tiff_offset + new_tiff.len() <= out.len() {
         out[tiff_offset..tiff_offset + new_tiff.len()].copy_from_slice(new_tiff);
     }
@@ -253,19 +265,32 @@ fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
         if box_type == b"meta" {
             return Some((pos + header_len, pos + box_size));
         }
-
         pos += box_size;
     }
     None
 }
 
-/// Locate the TIFF header magic bytes within a byte slice.
-fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
-    if bytes.len() < 4 {
+/// Robust scan for standard TIFF header signatures ("II*\0" or "MM\0*").
+pub fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 8 {
         return None;
     }
-    for i in 0..=bytes.len() - 4 {
-        if &bytes[i..i + 4] == b"II\x2A\x00" || &bytes[i..i + 4] == b"MM\x00\x2A" {
+    // 1. Look for explicit Exif\0\0 header offset
+    for i in 0..bytes.len().saturating_sub(10) {
+        if &bytes[i..i + 6] == b"Exif\0\0" {
+            let tiff_start = i + 6;
+            if &bytes[tiff_start..tiff_start + 4] == [0x49, 0x49, 0x2A, 0x00]
+                || &bytes[tiff_start..tiff_start + 4] == [0x4D, 0x4D, 0x00, 0x2A]
+            {
+                return Some(tiff_start);
+            }
+        }
+    }
+    // 2. Scan for raw TIFF magic bytes
+    for i in 0..bytes.len().saturating_sub(4) {
+        if &bytes[i..i + 4] == [0x49, 0x49, 0x2A, 0x00]
+            || &bytes[i..i + 4] == [0x4D, 0x4D, 0x00, 0x2A]
+        {
             return Some(i);
         }
     }
@@ -889,7 +914,6 @@ fn reset_orientation_in_tiff(tiff: &mut [u8]) {
 
 pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
     let mut buf = tiff.to_vec();
-
     if buf.len() < 8 {
         return Ok(buf);
     }
@@ -899,7 +923,6 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
         b"MM" => false,
         _ => return Ok(buf),
     };
-
     let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
         b.get(o..o + 2).map(|s| {
             if little_endian {
@@ -918,20 +941,18 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
             }
         })
     };
-    let write_u32 = |b: &mut Vec<u8>, o: usize, v: u32| {
+    let write_u16 = |b: &mut Vec<u8>, o: usize, v: u16| {
         let bytes = if little_endian {
             v.to_le_bytes()
         } else {
             v.to_be_bytes()
         };
-        b[o..o + 4].copy_from_slice(&bytes);
+        b[o..o + 2].copy_from_slice(&bytes);
     };
-
     let ifd_offset = match read_u32(&buf, 4) {
         Some(o) => o as usize,
         None => return Ok(buf),
     };
-
     let entry_count = match read_u16(&buf, ifd_offset) {
         Some(c) => c as usize,
         None => return Ok(buf),
@@ -941,7 +962,20 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
         let entry_offset = ifd_offset + 2 + e * 12;
         if let Some(tag) = read_u16(&buf, entry_offset) {
             if tag == 0x8825 {
-                write_u32(&mut buf, entry_offset + 8, 0);
+                let next_entry = entry_offset + 12;
+                let end_of_entries = ifd_offset + 2 + entry_count * 12;
+
+                // Shift remaining entries and next IFD offset 12 bytes left
+                buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
+
+                // Zero out the now-unused 12 trailing bytes to wipe stale 0x8825 markers
+                let freed_space_start = end_of_entries + 4 - 12;
+                let freed_space_end = end_of_entries + 4;
+                if freed_space_end <= buf.len() {
+                    buf[freed_space_start..freed_space_end].fill(0);
+                }
+                // Decrement entry count
+                write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
                 break;
             }
         }

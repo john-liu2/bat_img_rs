@@ -8,10 +8,12 @@ mod common;
 mod tests {
     use bat_img_rs::exif::{
         extract_exif_tiff, rewrite_exif_metadata, is_png, is_tiff, read_orientation,
-        strip_all_metadata, strip_gps_metadata,
+        strip_all_metadata, strip_gps_metadata, read_exif
     };
-    use image::RgbImage;
-    use tempfile::TempDir;
+    use image::{DynamicImage, RgbImage};
+    use tempfile::{TempDir, tempdir};
+    use libheif_rs::CompressionFormat;
+    use bat_img_rs::heic;
 
     use super::common::{png_with_exif_chunk, webp_with_exif_chunk, build_tiff_le,
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
@@ -35,6 +37,31 @@ mod tests {
         bytes.extend_from_slice(tiff_payload);
 
         bytes
+    }
+
+    #[test]
+    fn read_exif_succeeds_after_strip_gps() {
+        let dir = tempdir().unwrap();
+        let input_path = dir.path().join("input_with_gps.heic");
+        let stripped_path = dir.path().join("stripped_gps.heic");
+
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
+        let tiff = build_tiff_with_gps(0x1234);
+
+        // Encode HEIC with EXIF + GPS metadata
+        heic::encode(&img, &input_path, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
+
+        // Strip GPS metadata
+        let raw_bytes = std::fs::read(&input_path).unwrap();
+        let stripped_bytes = strip_gps_metadata(&raw_bytes).expect("GPS stripping failed");
+        std::fs::write(&stripped_path, &stripped_bytes).unwrap();
+
+        // Verify read_exif parses non-GPS camera tags cleanly
+        let exif_info = read_exif(&stripped_path)
+            .expect("read_exif must return valid EXIF metadata after strip_gps");
+
+        assert_eq!(exif_info.make.as_deref(), Some("Apple"));
+        assert!(!exif_info.gps_present, "GPS data should no longer be present");
     }
 
     // ── HEIC Container Level Tests ───────────────────────────────────────────────
