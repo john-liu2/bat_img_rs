@@ -256,7 +256,6 @@ fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
 
         pos += box_size;
     }
-
     None
 }
 
@@ -293,7 +292,6 @@ pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
             }
         }
     }
-
     Ok(out)
 }
 
@@ -341,15 +339,10 @@ fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> 
 
         i = seg_end;
     }
-
     out
 }
 
 // ── PNG helpers ───────────────────────────────────────────────────────────────
-// fn strip_png_metadata(png: &[u8]) -> Vec<u8> {
-//     rewrite_png_chunks(png, |ctype, _| ctype != b"eXIf")
-// }
-
 fn rewrite_png_exif_without_gps(png: &[u8]) -> Result<Vec<u8>> {
     let mut out = png.to_vec();
     foreach_png_chunk_mut(&mut out, |ctype, data| {
@@ -407,7 +400,6 @@ fn rewrite_png_chunks(
     if i != png.len() {
         return png.to_vec();
     }
-
     out
 }
 
@@ -442,7 +434,6 @@ fn foreach_png_chunk_mut(
 
         i = chunk_end;
     }
-
     Ok(())
 }
 
@@ -462,17 +453,6 @@ fn png_crc32(data: &[u8]) -> u32 {
 }
 
 // ── WebP helpers ──────────────────────────────────────────────────────────────
-// fn strip_webp_exif(webp: &[u8]) -> Vec<u8> {
-//     rebuild_webp_chunks(webp, |fourcc, payload| {
-//         if fourcc == b"EXIF" {
-//             None
-//         } else {
-//             Some(payload.to_vec())
-//         }
-//     })
-//     .unwrap_or_else(|| webp.to_vec())
-// }
-
 fn rewrite_webp_exif_without_gps(webp: &[u8]) -> Result<Vec<u8>> {
     rebuild_webp_chunks(webp, |fourcc, payload| {
         if fourcc == b"EXIF" {
@@ -529,7 +509,6 @@ fn rebuild_webp_chunks(
             pos += 1;
         }
     }
-
     let riff_size = (out.len() - 8) as u32;
     out[4..8].copy_from_slice(&riff_size.to_le_bytes());
     Some(out)
@@ -614,7 +593,6 @@ fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
             return Some(read_u16(tiff, entry_offset + 8)? as u32);
         }
     }
-
     None
 }
 
@@ -640,7 +618,6 @@ fn rewrite_jpeg_exif_without_gps(jpeg: &[u8]) -> Result<Vec<u8>> {
 
         i = seg_end;
     }
-
     Ok(jpeg.to_vec())
 }
 
@@ -761,7 +738,6 @@ fn inject_exif_into_png(png: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
     if !inserted {
         return Ok(png.to_vec());
     }
-
     Ok(rebuilt)
 }
 
@@ -970,6 +946,5 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
             }
         }
     }
-
     Ok(buf)
 }

@@ -21,10 +21,6 @@ jobs:
             target: aarch64-apple-darwin      # Apple Silicon
             artifact: bat_img-aarch64-apple-darwin
 
-          # - os: macos-13  # last Intel runner
-          #   target: x86_64-apple-darwin  # Intel Mac
-          #   artifact: bat_img-x86_64-apple-darwin
-
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: bat_img-x86_64-unknown-linux-gnu
@@ -127,10 +123,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install build tools
-        run: pip install hatchling twine build
+        run: python3 -m pip install hatchling twine build
 
       - name: Download all binaries
         uses: actions/download-artifact@v4
@@ -138,7 +134,7 @@ jobs:
           path: binaries/
 
       - name: Build platform wheels and sdist
-        run: python python/build_wheels.py binaries/
+        run: python3 python/build_wheels.py binaries/
 
       - name: Validate distribution files
         run: twine check dist/*
