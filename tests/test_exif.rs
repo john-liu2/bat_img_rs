@@ -23,17 +23,26 @@ mod tests {
     fn mock_heic_with_exif(tiff_payload: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        // 1. Minimal 'ftyp' box (12 bytes)
-        bytes.extend_from_slice(&12u32.to_be_bytes());
-        bytes.extend_from_slice(b"ftypheic");
+        // ── ftyp box (valid HEIC container) ──
+        let ftyp_size = 20; // 4 (size) + 4 (type) + 4 (major) + 4 (minor) + 4 (compat)
+        bytes.extend_from_slice(&(ftyp_size as u32).to_be_bytes());
+        bytes.extend_from_slice(b"ftyp");
+        bytes.extend_from_slice(b"heic");      // major brand
+        bytes.extend_from_slice(&0u32.to_be_bytes()); // minor version
+        bytes.extend_from_slice(b"mif1");      // compatible brand
 
-        // 2. 'meta' box wrapping EXIF TIFF payload
-        let meta_payload_len = 4 + tiff_payload.len(); // 4-byte version/flags + payload
-        let meta_box_len = (8 + meta_payload_len) as u32;
-
-        bytes.extend_from_slice(&meta_box_len.to_be_bytes());
+        // ── meta box ──
+        let exif_box_size = 8 + 4 + tiff_payload.len(); // header + fullbox + payload
+        let meta_payload_len = 4 + exif_box_size;      // version/flags + Exif box
+        let meta_box_len = 8 + meta_payload_len;
+        bytes.extend_from_slice(&(meta_box_len as u32).to_be_bytes());
         bytes.extend_from_slice(b"meta");
-        bytes.extend_from_slice(&[0, 0, 0, 0]); // FullBox version and flags
+        bytes.extend_from_slice(&[0, 0, 0, 0]); // meta version/flags
+
+        // ── Exif box ──
+        bytes.extend_from_slice(&(exif_box_size as u32).to_be_bytes());
+        bytes.extend_from_slice(b"Exif");
+        bytes.extend_from_slice(&[0, 0, 0, 0]); // Exif version/flags
         bytes.extend_from_slice(tiff_payload);
 
         bytes

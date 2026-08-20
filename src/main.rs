@@ -16,6 +16,8 @@ use std::time::Instant;
 use pipeline::{build_pipeline, collect_input_files};
 use processor::ProcessingContext;
 
+const TAB_WIDTH: usize = 15;
+
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -41,6 +43,7 @@ fn main() -> Result<()> {
     }
 
     // ── Display Detailed Info & Exit ─────────────────────────────────────────
+    let width = TAB_WIDTH;
     if args.info {
         let total = files.len();
         for (i, file) in files.iter().enumerate() {
@@ -65,7 +68,7 @@ fn main() -> Result<()> {
                     format!("{} B", bytes)
                 };
                 println!(
-                    "  {:15} : {} ({})",
+                    "  {:<width$} : {} ({})",
                     "File Size".bold(),
                     readable_size,
                     format!("{} bytes", bytes).dimmed()
@@ -81,7 +84,7 @@ fn main() -> Result<()> {
                     .map(|f| format!("{:?}", f))
                     .unwrap_or_else(|_| "Unknown".to_string())
             };
-            println!("  {:15} : {}", "Format".bold(), format_str.blue());
+            println!("  {:<width$} : {}", "Format".bold(), format_str.blue());
 
             // Extract dimensions and color type (handling HEIC via libheif decode)
             let (dimensions, color_type) = if is_heic_file {
@@ -101,7 +104,7 @@ fn main() -> Result<()> {
             if let Some((w, h)) = dimensions {
                 let megapixels = (w as f64 * h as f64) / 1_000_000.0;
                 println!(
-                    "  {:15} : {}x{} ({:.2} MP)",
+                    "  {:<width$} : {}x{} ({:.2} MP)",
                     "Dimensions".bold(),
                     w,
                     h,
@@ -109,7 +112,7 @@ fn main() -> Result<()> {
                 );
             }
             if let Some(color) = color_type {
-                println!("  {:15} : {:?}", "Color Type".bold(), color);
+                println!("  {:<width$} : {:?}", "Color Type".bold(), color);
             }
 
             // 3. EXIF Data
@@ -118,26 +121,24 @@ fn main() -> Result<()> {
                 let mut found_any = false;
 
                 if let Some(ref make) = exif_data.make {
-                    let clean_make = make.trim().trim_matches('"').trim();
-                    println!("    {:17} : {}", "Make", clean_make);
+                    println!("    {:<width$} : {}", "Make", make);
                     found_any = true;
                 }
                 if let Some(ref model) = exif_data.model {
-                    let clean_model = model.trim().trim_matches('"').trim();
-                    println!("    {:17} : {}", "Model", clean_model);
+                    println!("    {:<width$} : {}", "Model", model);
                     found_any = true;
                 }
                 if let Some(ref date) = exif_data.date_time {
-                    println!("    {:17} : {}", "Date/Time", date);
+                    println!("    {:<width$} : {}", "Date/Time", date);
                     found_any = true;
                 }
                 if let Some(ref iso) = exif_data.iso {
-                    println!("    {:17} : ISO {}", "ISO Speed", iso);
+                    println!("    {:<width$} : ISO {}", "ISO Speed", iso);
                     found_any = true;
                 }
                 if let Some(ref exp) = exif_data.exposure {
                     let clean_exp = exp.trim().trim_end_matches('s').trim();
-                    println!("    {:17} : {} s", "Exposure", clean_exp);
+                    println!("    {:<width$} : {} s", "Exposure", clean_exp);
                     found_any = true;
                 }
                 if let Some(ref f) = exif_data.f_number {
@@ -147,7 +148,7 @@ fn main() -> Result<()> {
                     } else {
                         clean_f.to_string()
                     };
-                    println!("    {:17} : f/{}", "Aperture", formatted_f);
+                    println!("    {:<width$} : f/{}", "Aperture", formatted_f);
                     found_any = true;
                 }
                 if let Some(ref fl) = exif_data.focal_length {
@@ -157,11 +158,11 @@ fn main() -> Result<()> {
                     } else {
                         format!("{} mm", clean_fl)
                     };
-                    println!("    {:17} : {}", "Focal Length", formatted_fl);
+                    println!("    {:<width$} : {}", "Focal Length", formatted_fl);
                     found_any = true;
                 }
                 if exif_data.gps_present {
-                    println!("    {:17} : {}", "GPS Data".red(), "Present");
+                    println!("    {:<width$} : {}", "GPS Data".red(), "Present");
                     found_any = true;
                 }
 

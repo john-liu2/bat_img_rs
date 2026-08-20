@@ -216,26 +216,79 @@ fn rewrite_heic_exif_without_gps(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
-/// Extract raw TIFF bytes from any container by searching for valid TIFF headers.
+/// Extract raw TIFF bytes from the 'Exif' box in a HEIC file.
 pub fn extract_heic_exif_raw(bytes: &[u8]) -> Option<Vec<u8>> {
+    // First attempt: locate the Exif box
+    if let Some((start, len)) = find_heic_exif_box(bytes) {
+        return Some(bytes[start..start+len].to_vec());
+    }
+    // Fallback: raw TIFF header scan
     let tiff_offset = find_tiff_header(bytes)?;
     Some(bytes[tiff_offset..].to_vec())
 }
 
-/// Replace the EXIF TIFF payload inside a HEIC file in-place and zero-fill trailing bytes.
+/// Replace the TIFF payload inside the 'Exif' box, update box size, and zero padding.
 pub fn replace_heic_exif_payload(bytes: &[u8], new_tiff: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let Some(tiff_offset) = find_tiff_header(bytes) else {
-        return Ok(bytes.to_vec());
-    };
+    // Try box‑based replacement first
+    if let Some((payload_start, payload_len)) = find_heic_exif_box(bytes) {
+        let mut out = bytes.to_vec();
+        let new_len = new_tiff.len();
 
+        // Copy new TIFF
+        if payload_start + new_len <= out.len() {
+            out[payload_start..payload_start+new_len].copy_from_slice(new_tiff);
+        }
+        // Zero leftover bytes in the box
+        let end_of_box = payload_start + payload_len;
+        if end_of_box <= out.len() {
+            out[payload_start+new_len..end_of_box].fill(0);
+        }
+        // Update box size (header is 8 bytes + 4 fullbox flags)
+        let box_size_pos = payload_start - 8 - 4;
+        let new_box_size = 8 + 4 + new_len;
+        if box_size_pos + 4 <= out.len() {
+            out[box_size_pos..box_size_pos+4].copy_from_slice(&(new_box_size as u32).to_be_bytes());
+        }
+        return Ok(out);
+    }
+
+    // Fallback: raw offset replacement (no size update)
+    let tiff_offset = find_tiff_header(bytes)
+        .ok_or_else(|| anyhow::anyhow!("No Exif or TIFF header found"))?;
     let mut out = bytes.to_vec();
     if tiff_offset + new_tiff.len() <= out.len() {
-        out[tiff_offset..tiff_offset + new_tiff.len()].copy_from_slice(new_tiff);
+        out[tiff_offset..tiff_offset+new_tiff.len()].copy_from_slice(new_tiff);
     }
     Ok(out)
 }
 
 // ── Private HEIC Helpers ─────────────────────────────────────────────────────
+
+/// Locate the 'Exif' box inside the 'meta' box and return (payload_start, payload_len).
+fn find_heic_exif_box(bytes: &[u8]) -> Option<(usize, usize)> {
+    let (meta_start, meta_end) = find_heic_meta_bounds(bytes)?;
+    // meta is a FullBox: skip 4-byte version/flags
+    let mut pos = meta_start + 4;
+
+    while pos + 8 <= meta_end {
+        let box_size = u32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
+        let box_type = &bytes[pos+4..pos+8];
+        let header_len = 8;
+
+        if box_size < header_len || pos + box_size > meta_end {
+            break;
+        }
+
+        if box_type == b"Exif" {
+            // Exif is also a FullBox: 4 bytes version/flags + TIFF data
+            let payload_start = pos + 8 + 4;
+            let payload_len = box_size - 8 - 4;
+            return Some((payload_start, payload_len));
+        }
+        pos += box_size;
+    }
+    None
+}
 
 /// Walk top-level ISOBMFF boxes to locate the (start, end) payload bounds of the 'meta' box.
 fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
@@ -297,23 +350,22 @@ pub fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
     None
 }
 
-/// Complete HEIC metadata removal without breaking container structural boxes (pitm, iloc, iinf).
+/// Complete HEIC metadata removal: zero Exif box and rename it to "free".
 pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut out = bytes.to_vec();
 
-    // 1. Zero out all TIFF header magic bytes and EXIF payload markers
+    // 1. Zero out all TIFF header magic bytes and following payload window
     while let Some(offset) = find_tiff_header(&out) {
-        // Zero out the TIFF magic bytes and following payload window
         let end = (offset + 1024).min(out.len());
         out[offset..end].fill(0);
     }
 
-    // 2. Unlink 'Exif' item tokens inside the 'meta' container box
+    // 2. Rename any "Exif" boxes to "free" inside the meta box
     if let Some((meta_start, meta_end)) = find_heic_meta_bounds(&out) {
         let meta_slice = &mut out[meta_start..meta_end];
         for i in 0..meta_slice.len().saturating_sub(4) {
-            if &meta_slice[i..i + 4] == b"Exif" {
-                meta_slice[i..i + 4].copy_from_slice(b"free");
+            if &meta_slice[i..i+4] == b"Exif" {
+                meta_slice[i..i+4].copy_from_slice(b"free");
             }
         }
     }
