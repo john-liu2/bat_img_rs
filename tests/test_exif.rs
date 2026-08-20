@@ -8,10 +8,12 @@ mod common;
 mod tests {
     use bat_img_rs::exif::{
         extract_exif_tiff, rewrite_exif_metadata, is_png, is_tiff, read_orientation,
-        strip_all_metadata, strip_gps_metadata,
+        strip_all_metadata, strip_gps_metadata, read_exif
     };
-    use image::RgbImage;
-    use tempfile::TempDir;
+    use image::{DynamicImage, RgbImage};
+    use tempfile::{TempDir, tempdir};
+    use libheif_rs::CompressionFormat;
+    use bat_img_rs::heic;
 
     use super::common::{png_with_exif_chunk, webp_with_exif_chunk, build_tiff_le,
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
@@ -35,6 +37,31 @@ mod tests {
         bytes.extend_from_slice(tiff_payload);
 
         bytes
+    }
+
+    #[test]
+    fn read_exif_succeeds_after_strip_gps() {
+        let dir = tempdir().unwrap();
+        let input_path = dir.path().join("input_with_gps.heic");
+        let stripped_path = dir.path().join("stripped_gps.heic");
+
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
+        let tiff = build_tiff_with_gps(0x1234);
+
+        // Encode HEIC with EXIF + GPS metadata
+        heic::encode(&img, &input_path, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
+
+        // Strip GPS metadata
+        let raw_bytes = std::fs::read(&input_path).unwrap();
+        let stripped_bytes = strip_gps_metadata(&raw_bytes).expect("GPS stripping failed");
+        std::fs::write(&stripped_path, &stripped_bytes).unwrap();
+
+        // Verify read_exif parses non-GPS camera tags cleanly
+        let exif_info = read_exif(&stripped_path)
+            .expect("read_exif must return valid EXIF metadata after strip_gps");
+
+        assert_eq!(exif_info.make.as_deref(), Some("Apple"));
+        assert!(!exif_info.gps_present, "GPS data should no longer be present");
     }
 
     // ── HEIC Container Level Tests ───────────────────────────────────────────────
@@ -92,6 +119,62 @@ mod tests {
         assert!(stripped.windows(4).any(|w| w == b"meta"));
         let gps_bytes = 0x1234u32.to_le_bytes();
         assert!(!stripped.windows(4).any(|w| w == gps_bytes));
+    }
+
+    // ── EXIF Info Display Formatting Helpers ─────────────────────────────────
+    #[test]
+    fn format_make_and_model_strips_quotes() {
+        let raw_make = "\"Apple\"";
+        let raw_model = "\"iPhone 16 Pro Max\"";
+
+        let clean_make = raw_make.trim().trim_matches('"').trim();
+        let clean_model = raw_model.trim().trim_matches('"').trim();
+
+        assert_eq!(clean_make, "Apple");
+        assert_eq!(clean_model, "iPhone 16 Pro Max");
+    }
+
+    #[test]
+    fn format_exposure_time_strips_double_seconds() {
+        let raw = "1/348 s";
+        let clean = raw.trim().trim_end_matches('s').trim();
+        assert_eq!(format!("{clean} s"), "1/348 s");
+    }
+
+    #[test]
+    fn format_aperture_normalizes_f_number_and_floats() {
+        // Double prefix + long float: f/f/1.7799999713880652
+        let raw = "f/f/1.7799999713880652";
+        let clean_f = raw.trim().trim_start_matches("f/").trim_start_matches("f/").trim_start_matches('f').trim();
+        let formatted_f = if let Ok(val) = clean_f.parse::<f64>() {
+            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            clean_f.to_string()
+        };
+        assert_eq!(format!("f/{formatted_f}"), "f/1.78");
+
+        // Single prefix: f/2.8
+        let raw2 = "f/2.8000";
+        let clean_f2 = raw2.trim().trim_start_matches("f/").trim_start_matches('f').trim();
+        let formatted_f2 = if let Ok(val) = clean_f2.parse::<f64>() {
+            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            clean_f2.to_string()
+        };
+        assert_eq!(format!("f/{formatted_f2}"), "f/2.8");
+    }
+
+    #[test]
+    fn format_focal_length_rounds_float_and_normalizes_mm() {
+        // Raw float string: 6.764999866370901 mm
+        let raw = "6.764999866370901 mm";
+        let clean_fl = raw.trim().trim_end_matches("mm").trim();
+        let formatted_fl = if let Ok(val) = clean_fl.parse::<f64>() {
+            format!("{:.2} mm", val)
+        } else {
+            format!("{} mm", clean_fl)
+        };
+        assert_eq!(formatted_fl, "6.76 mm");
     }
 
     // ── Multi-Format Strip GPS Tests ───────────────────────────────────────────

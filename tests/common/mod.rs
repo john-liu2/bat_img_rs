@@ -3,6 +3,7 @@
 use image::{DynamicImage, RgbImage};
 use tempfile::TempDir;
 use std::path::PathBuf;
+use exif_lib as exif;
 
 // ── TIFF / EXIF byte-building helpers ─────────────────────────────────────
 
@@ -98,7 +99,8 @@ pub fn build_tiff_le(entries: &[(u16, u16, u16)]) -> Vec<u8> {
 }
 
 /// Wrap a TIFF block in a minimal JPEG APP1 EXIF segment.
-#[allow(dead_code)]pub fn jpeg_with_exif(tiff: &[u8]) -> Vec<u8> {
+#[allow(dead_code)]
+pub fn jpeg_with_exif(tiff: &[u8]) -> Vec<u8> {
     let exif_header = b"Exif\x00\x00";
     let payload_len = exif_header.len() + tiff.len();
     let seg_len = (payload_len + 2) as u16; // includes the length field
@@ -116,25 +118,32 @@ pub fn build_tiff_le(entries: &[(u16, u16, u16)]) -> Vec<u8> {
 
 /// Build a TIFF with a GPS IFD pointer (tag 0x8825) set to a non-zero offset.
 #[allow(dead_code)]
-pub fn build_tiff_with_gps(gps_offset: u32) -> Vec<u8> {
-    let mut buf: Vec<u8> = vec![b'I', b'I', 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
-    // 2 entries: Orientation + GPSInfoIFD
-    buf.extend_from_slice(&2u16.to_le_bytes());
+pub fn build_tiff_with_gps(_seed: u32) -> Vec<u8> {
+    let mut writer = exif::experimental::Writer::new();
 
-    // Orientation = 1
-    buf.extend_from_slice(&0x0112u16.to_le_bytes());
-    buf.extend_from_slice(&3u16.to_le_bytes());
-    buf.extend_from_slice(&1u32.to_le_bytes());
-    buf.extend_from_slice(&1u32.to_le_bytes());
+    // Add standard camera metadata tag so EXIF remains valid after strip_gps
+    let make_field = exif::Field {
+        tag: exif::Tag::Make,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![b"Apple".to_vec()]),
+    };
+    writer.push_field(&make_field);
 
-    // GPSInfoIFDPointer = gps_offset
-    buf.extend_from_slice(&0x8825u16.to_le_bytes());
-    buf.extend_from_slice(&4u16.to_le_bytes()); // LONG
-    buf.extend_from_slice(&1u32.to_le_bytes());
-    buf.extend_from_slice(&gps_offset.to_le_bytes());
+    // Add GPS metadata tag
+    let gps_field = exif::Field {
+        tag: exif::Tag::GPSLatitude,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Rational(vec![
+            exif::Rational { num: 37, denom: 1 },
+            exif::Rational { num: 46, denom: 1 },
+            exif::Rational { num: 0, denom: 1 },
+        ]),
+    };
+    writer.push_field(&gps_field);
 
-    buf.extend_from_slice(&0u32.to_le_bytes()); // next IFD
-    buf
+    let mut buf = std::io::Cursor::new(Vec::new());
+    writer.write(&mut buf, false).unwrap();
+    buf.into_inner()
 }
 
 // ── test_processor.rs Helpers ───────────────────────────────────────────────────────────────

@@ -73,60 +73,91 @@ fn main() -> Result<()> {
             }
 
             // 2. Format & Dimensions
-            let format_str = image::ImageFormat::from_path(file)
-                .map(|f| format!("{:?}", f))
-                .unwrap_or_else(|_| "Unknown".to_string());
-            println!("  {:15} : {}", "Format".bold(), format_str.yellow());
+            let is_heic_file = heic::is_heic(file);
+            let format_str = if is_heic_file {
+                "HEIC".to_string()
+            } else {
+                image::ImageFormat::from_path(file)
+                    .map(|f| format!("{:?}", f))
+                    .unwrap_or_else(|_| "Unknown".to_string())
+            };
+            println!("  {:15} : {}", "Format".bold(), format_str.blue());
 
-            if let Ok(reader) = image::ImageReader::open(file) {
-                if let Ok(decoder) = reader.with_guessed_format() {
-                    if let Ok((w, h)) = decoder.into_dimensions() {
-                        let megapixels = (w as f64 * h as f64) / 1_000_000.0;
-                        println!(
-                            "  {:15} : {}x{} ({:.2} MP)",
-                            "Dimensions".bold(),
-                            w,
-                            h,
-                            megapixels
-                        );
-                    }
+            // Extract dimensions and color type (handling HEIC via libheif decode)
+            let (dimensions, color_type) = if is_heic_file {
+                if let Ok((img, _, _)) = heic::decode(file) {
+                    (Some((img.width(), img.height())), Some(img.color()))
+                } else {
+                    (None, None)
                 }
+            } else {
+                let dims = image::ImageReader::open(file)
+                    .ok()
+                    .and_then(|r| r.with_guessed_format().ok())
+                    .and_then(|d| d.into_dimensions().ok());
+                let color = image::open(file).ok().map(|img| img.color());
+                (dims, color)
+            };
+            if let Some((w, h)) = dimensions {
+                let megapixels = (w as f64 * h as f64) / 1_000_000.0;
+                println!(
+                    "  {:15} : {}x{} ({:.2} MP)",
+                    "Dimensions".bold(),
+                    w,
+                    h,
+                    megapixels
+                );
             }
-            if let Ok(img) = image::open(file) {
-                println!("  {:15} : {:?}", "Color Type".bold(), img.color());
+            if let Some(color) = color_type {
+                println!("  {:15} : {:?}", "Color Type".bold(), color);
             }
 
             // 3. EXIF Data
-            println!("\n  {}", "[ EXIF Metadata ]".bold().underline());
+            println!("\n  {}", "[ EXIF Metadata ]".bold().underline().dimmed());
             if let Some(exif_data) = exif::read_exif(file) {
                 let mut found_any = false;
 
                 if let Some(ref make) = exif_data.make {
-                    println!("    {:17} : {}", "Make".dimmed(), make);
+                    let clean_make = make.trim().trim_matches('"').trim();
+                    println!("    {:17} : {}", "Make", clean_make);
                     found_any = true;
                 }
                 if let Some(ref model) = exif_data.model {
-                    println!("    {:17} : {}", "Model".dimmed(), model);
+                    let clean_model = model.trim().trim_matches('"').trim();
+                    println!("    {:17} : {}", "Model", clean_model);
                     found_any = true;
                 }
                 if let Some(ref date) = exif_data.date_time {
-                    println!("    {:17} : {}", "Date/Time".dimmed(), date);
+                    println!("    {:17} : {}", "Date/Time", date);
                     found_any = true;
                 }
                 if let Some(ref iso) = exif_data.iso {
-                    println!("    {:17} : ISO {}", "ISO Speed".dimmed(), iso);
+                    println!("    {:17} : ISO {}", "ISO Speed", iso);
                     found_any = true;
                 }
                 if let Some(ref exp) = exif_data.exposure {
-                    println!("    {:17} : {} s", "Exposure".dimmed(), exp);
+                    let clean_exp = exp.trim().trim_end_matches('s').trim();
+                    println!("    {:17} : {} s", "Exposure", clean_exp);
                     found_any = true;
                 }
                 if let Some(ref f) = exif_data.f_number {
-                    println!("    {:17} : f/{}", "Aperture".dimmed(), f);
+                    let clean_f = f.trim().trim_start_matches("f/").trim_start_matches('f').trim();
+                    let formatted_f = if let Ok(val) = clean_f.parse::<f64>() {
+                        format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+                    } else {
+                        clean_f.to_string()
+                    };
+                    println!("    {:17} : f/{}", "Aperture", formatted_f);
                     found_any = true;
                 }
                 if let Some(ref fl) = exif_data.focal_length {
-                    println!("    {:17} : {}", "Focal Length".dimmed(), fl);
+                    let clean_fl = fl.trim().trim_end_matches("mm").trim();
+                    let formatted_fl = if let Ok(val) = clean_fl.parse::<f64>() {
+                        format!("{:.2} mm", val)
+                    } else {
+                        format!("{} mm", clean_fl)
+                    };
+                    println!("    {:17} : {}", "Focal Length", formatted_fl);
                     found_any = true;
                 }
                 if exif_data.gps_present {
