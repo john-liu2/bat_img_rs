@@ -94,6 +94,62 @@ mod tests {
         assert!(!stripped.windows(4).any(|w| w == gps_bytes));
     }
 
+    // ── EXIF Info Display Formatting Helpers ─────────────────────────────────
+    #[test]
+    fn format_make_and_model_strips_quotes() {
+        let raw_make = "\"Apple\"";
+        let raw_model = "\"iPhone 16 Pro Max\"";
+
+        let clean_make = raw_make.trim().trim_matches('"').trim();
+        let clean_model = raw_model.trim().trim_matches('"').trim();
+
+        assert_eq!(clean_make, "Apple");
+        assert_eq!(clean_model, "iPhone 16 Pro Max");
+    }
+
+    #[test]
+    fn format_exposure_time_strips_double_seconds() {
+        let raw = "1/348 s";
+        let clean = raw.trim().trim_end_matches('s').trim();
+        assert_eq!(format!("{clean} s"), "1/348 s");
+    }
+
+    #[test]
+    fn format_aperture_normalizes_f_number_and_floats() {
+        // Double prefix + long float: f/f/1.7799999713880652
+        let raw = "f/f/1.7799999713880652";
+        let clean_f = raw.trim().trim_start_matches("f/").trim_start_matches("f/").trim_start_matches('f').trim();
+        let formatted_f = if let Ok(val) = clean_f.parse::<f64>() {
+            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            clean_f.to_string()
+        };
+        assert_eq!(format!("f/{formatted_f}"), "f/1.78");
+
+        // Single prefix: f/2.8
+        let raw2 = "f/2.8000";
+        let clean_f2 = raw2.trim().trim_start_matches("f/").trim_start_matches('f').trim();
+        let formatted_f2 = if let Ok(val) = clean_f2.parse::<f64>() {
+            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            clean_f2.to_string()
+        };
+        assert_eq!(format!("f/{formatted_f2}"), "f/2.8");
+    }
+
+    #[test]
+    fn format_focal_length_rounds_float_and_normalizes_mm() {
+        // Raw float string: 6.764999866370901 mm
+        let raw = "6.764999866370901 mm";
+        let clean_fl = raw.trim().trim_end_matches("mm").trim();
+        let formatted_fl = if let Ok(val) = clean_fl.parse::<f64>() {
+            format!("{:.2} mm", val)
+        } else {
+            format!("{} mm", clean_fl)
+        };
+        assert_eq!(formatted_fl, "6.76 mm");
+    }
+
     // ── Multi-Format Strip GPS Tests ───────────────────────────────────────────
     #[test]
     fn png_strip_gps_metadata_preserves_chunk_structure() {

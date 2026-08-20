@@ -22,6 +22,71 @@ mod tests {
 
     const HEIC_FIXTURE: &str = "tests/fixtures/src.heic";
 
+    #[test]
+    fn heic_decode_provides_dimensions_and_color_type() {
+        let dir = tempdir().unwrap();
+        let test_file = dir.path().join("test_dim.heic");
+
+        let expected_w = 16;
+        let expected_h = 12;
+        let img = DynamicImage::ImageRgb8(
+            RgbImage::from_pixel(expected_w, expected_h, image::Rgb([100, 150, 200]))
+        );
+        heic::encode(
+            &img,
+            &test_file,
+            CompressionFormat::Hevc,
+            Some(80),
+            None,
+        )
+        .expect("Failed to encode HEIC for dimension test");
+
+        let (decoded_img, _, _) = heic::decode(&test_file).expect("Failed to decode HEIC");
+        assert_eq!(decoded_img.width(), expected_w);
+        assert_eq!(decoded_img.height(), expected_h);
+        assert_eq!(decoded_img.color(), image::ColorType::Rgb8);
+    }
+
+    #[test]
+    fn fixture_heic_provides_valid_dimensions_and_color_type() {
+        let fixture = Path::new(HEIC_FIXTURE);
+        if !fixture.exists() {
+            return;
+        }
+
+        match heic::decode(fixture) {
+            Ok((img, _, _)) => {
+                assert!(img.width() > 0, "Width should be greater than 0");
+                assert!(img.height() > 0, "Height should be greater than 0");
+                assert!(
+                    matches!(img.color(), image::ColorType::Rgb8 | image::ColorType::Rgba8),
+                    "Expected Rgb8 or Rgba8 color type"
+                );
+            }
+            Err(err) => {
+                let full_err = format!("{:#}", err);
+                assert!(
+                    full_err.contains("SecurityLimitExceeded") || full_err.contains("Security limit exceeded"),
+                    "Unexpected decode error for HEIC fixture: {full_err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn info_format_detects_heic_correctly() {
+        use bat_img_rs::heic::is_heic;
+        use std::path::Path;
+
+        let heic_file = Path::new(HEIC_FIXTURE);
+        let path = Path::new("sample.HEIC");
+
+        assert!(is_heic(path), "HEIC extension should be recognized");
+        if heic_file.exists() {
+            assert!(is_heic(heic_file), "Fixture HEIC file path must be recognized as HEIC");
+        }
+    }
+
     // ── Fixture Container Integration Tests ───────────────────────────────────
     #[test]
     fn fixture_heic_extract_exif_bytes() {
