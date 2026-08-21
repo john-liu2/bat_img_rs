@@ -10,6 +10,9 @@ use std::path::PathBuf;
     long_about = None,
     after_help = "\
 EXAMPLES:
+  # Show all image files meta data
+  bat_img_rs -i ./photos --info
+
   # Strip GPS in-place (no --output = overwrite originals)
   bat_img_rs -i ./photos --strip-gps
 
@@ -39,8 +42,7 @@ pub struct Args {
     pub input: Vec<String>,
 
     /// Output directory. When omitted, each input file is processed in-place
-    /// (the original is overwritten). A temp file + atomic rename is used so
-    /// the original is never corrupted on failure.
+    /// (the original is overwritten)
     #[arg(short, long)]
     pub output: Option<PathBuf>,
 
@@ -49,7 +51,7 @@ pub struct Args {
     pub recursive: bool,
 
     // ── Metadata ─────────────────────────────────────────────────────────────
-    /// Display image metadata (dimensions, size, format) and exit
+    /// Print image metadata (dimensions, size, format, date/time, etc.)
     #[arg(long, action = ArgAction::SetTrue)]
     pub info: bool,
 
@@ -119,9 +121,8 @@ pub struct Args {
     #[arg(short, long, value_enum)]
     pub format: Option<OutputFormat>,
 
-    /// JPEG/WebP output quality (1–100). When omitted, HEIC files re-encode
-    /// using the encoder default (closest to original size). Required for
-    /// non-HEIC outputs; defaults to 90 if unset.
+    /// JPEG/WebP output quality (1–100), required for non-HEIC output.
+    /// Default is 90 if not set. HEIC file is encoded with the default encoder
     #[arg(short = 'q', long, value_name = "1-100")]
     pub quality: Option<u8>,
 

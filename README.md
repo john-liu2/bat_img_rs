@@ -6,7 +6,7 @@ A fast, **multithreaded** batch image processing command line tool in Rust.
 
 | Platform | Architecture |
 |---|---|
-| macOS | Apple Silicon (M1 / M2 / M3 / M4 / ...) |
+| macOS | Apple Silicon |
 | Linux | x86-64 (glibc 2.17+, compatible with most distros) |
 | Windows | x86-64 |
 
@@ -15,6 +15,7 @@ A fast, **multithreaded** batch image processing command line tool in Rust.
 | Feature | Flag |
 |---|---|
 | In-place processing (overwrite originals) | *(omit `--output`)* |
+| Print image metadata (dimensions, size, format, date/time, etc.) | `--info` |
 | Strip GPS location from EXIF | `--strip-gps` |
 | Strip ALL metadata | `--strip-all` |
 | Resize (width, height, or both) | `-r 1920x0` |
@@ -60,9 +61,6 @@ cargo build --release
 
 # Binary will be at:
 ./target/release/bat_img_rs
-
-# Optional: install globally
-cargo install --path .
 ```
 
 > **Troubleshooting libheif linkage**
@@ -87,38 +85,34 @@ bat_img_rs [OPTIONS] --input <INPUT>...
 ### Options
 
 ```
-  -i, --input <INPUT>...       File, glob, or directory
-  -o, --output <DIR>           Output directory. When omitted, files are
-                               processed in-place (originals overwritten)
-  -R, --recursive              Recurse into subdirectories
-  -t, --threads <N>            Thread count [default: # of CPU cores]
-  -q, --quality <1-100>        JPEG/WebP quality. When omitted for HEIC,
-                               the encoder default is used to preserve
-                               original file size
-  -f, --format <FORMAT>        Output format:
-                               heic | heif | jpeg | png | webp | tiff | bmp | gif
-      --strip-gps              Remove GPS location from EXIF
-      --strip-all              Remove all metadata (EXIF, IPTC, XMP)
-  -r, --resize <WxH>           Resize image (0 = auto-scale, e.g. 1920x0)
-      --filter <FILTER>        Resize filter [default: lanczos3]
-                               nearest | triangle | catmull-rom | gaussian | lanczos3
-      --no-upscale             Never upscale images smaller than the target
-      --border <PIXELS>        Add a solid border N pixels wide on each side
-      --border-color <COLOR>   Border color: name or #rrggbb [default: white]
-      --rotate <DEG>           Rotate clockwise: 90 | 180 | 270
-      --flip-h                 Flip horizontally (mirror left-right)
-      --flip-v                 Flip vertically (mirror top-bottom)
-      --brightness <VALUE>     Brightness delta (-100..+100)
-      --contrast <VALUE>       Contrast delta (-100.0..+100.0)
-      --sharpen                Apply unsharp mask
-      --grayscale              Convert to grayscale
-      --prefix <PREFIX>        Prepend string to output filenames
-      --suffix <SUFFIX>        Append string to output filenames (before ext)
-      --overwrite              Overwrite existing files in the output directory
-      --dry-run                Preview what would be done without processing
-      --quiet                  Suppress all output except errors
-  -h, --help                   Print help
-  -V, --version                Print version
+  -i, --input <INPUT>...      Input: file path, glob pattern, or directory (e.g. ./photos, "*.jpg", ./img/photo.png)
+  -o, --output <OUTPUT>       Output directory. When omitted, each input file is processed in-place (the original is overwritten)
+  -R, --recursive             Recurse into subdirectories when input is a directory
+      --info                  Print image metadata (dimensions, size, format, date/time, etc.)
+      --strip-gps             Strip GPS location data from EXIF metadata
+      --strip-all             Strip ALL EXIF/IPTC/XMP metadata (implies --strip-gps)
+  -r, --resize <WxH>          Resize image. Format: WIDTHxHEIGHT (e.g. 1920x1080). Use 0 for auto (e.g. 1920x0 = fit width, 0x1080 = fit height)
+      --filter <FILTER>       Resize filter algorithm [default: lanczos3] [possible values: nearest, triangle, catmull-rom, gaussian, lanczos3]
+      --no-upscale            Do not upscale images smaller than the target size
+      --border <PIXELS>       Add a border of N pixels on each side
+      --border-color <COLOR>  Border color as CSS hex (#rrggbb) or name (white, black, red…) [default: white]
+      --rotate <DEGREES>      Rotate image clockwise by degrees (90, 180, 270)
+      --flip-h                Flip image horizontally (mirror left-right)
+      --flip-v                Flip image vertically (mirror top-bottom)
+      --brightness <VALUE>    Brightness adjustment (-100 to +100)
+      --contrast <VALUE>      Contrast adjustment (-100 to +100)
+      --sharpen               Apply sharpening filter
+      --grayscale             Convert to grayscale
+  -f, --format <FORMAT>       Output format (defaults to same as input) [possible values: jpeg, png, webp, tiff, bmp, gif, heic, heif]
+  -q, --quality <1-100>       JPEG/WebP output quality (1–100), required for non-HEIC output. Default is 90 if not set. HEIC file is encoded with the default encoder
+      --suffix <SUFFIX>       Filename suffix appended before extension (e.g. "_edited" → photo_edited.jpg) [default: ""]
+      --prefix <PREFIX>       Filename prefix prepended (e.g. "web_" → web_photo.jpg) [default: ""]
+  -t, --threads <THREADS>     Number of threads to use (default: physical CPUs qty on macOS; logical CPUs qty on others) [default: 8]
+      --overwrite             Overwrite existing output files (default: skip)
+      --quiet                 Suppress all output except errors
+      --dry-run               Dry-run: show what would be done without processing
+  -h, --help                  Print help
+  -V, --version               Print version
 ```
 
 ### In-place mode
@@ -164,10 +158,10 @@ bat_img_rs -i ./photos --strip-gps -o ./clean
 bat_img_rs -i ./photos -r 1920x0 --border 10 --border-color white -f webp -q 85 -o ./web
 
 # Convert HEIC → JPEG at quality 90
-bat_img_rs -i ./iphone_photos/*.heic -f jpeg -q 90 -o ./jpegs
+bat_img_rs -i ./photos/*.heic -f jpeg -q 90 -o ./jpegs
 
 # Convert HEIC → WebP at quality 85, resize to 2048px wide
-bat_img_rs -i ./iphone_photos -r 2048x0 -f webp -q 85 -o ./web
+bat_img_rs -i ./heic_photos -r 2048x0 -f webp -q 85 -o ./web
 
 # Rotate 90°, flip horizontal, convert to grayscale, add _bw suffix
 bat_img_rs -i ./scans --rotate 90 --flip-h --grayscale --suffix _bw -o ./processed
