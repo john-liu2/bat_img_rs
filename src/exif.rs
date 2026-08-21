@@ -4,10 +4,9 @@
 //! Orientation is read from the same EXIF block across all supported containers.
 
 use anyhow::{Context, Result};
+use image::ColorType;
 use std::path::Path;
 use crate::heic;
-// use std::fs::File;
-// use std::io::BufReader;
 use exif_lib::{In, Reader, Tag};
 
 // Format signatures
@@ -25,6 +24,249 @@ pub struct ExifInfo {
     pub f_number: Option<String>,
     pub focal_length: Option<String>,
     pub gps_present: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct ImageDetails {
+    pub bit_depth: String,
+    pub has_alpha: bool,
+    pub colorspace: String,
+    pub chroma_format: Option<String>,
+}
+
+
+// Helper: parse JPEG SOF marker for chroma subsampling.
+fn jpeg_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
+    if !is_jpeg(bytes) {
+        return None;
+    }
+    let mut i = 2; // skip SOI
+    while i + 4 <= bytes.len() {
+        if bytes[i] != 0xFF {
+            break;
+        }
+        let marker = bytes[i + 1];
+        // Markers with no length field: SOI, EOI, RST0-7, TEM
+        if marker == 0xD8 || marker == 0xD9 || (0xD0..=0xD7).contains(&marker) {
+            i += 2;
+            continue;
+        }
+        if i + 3 >= bytes.len() {
+            break;
+        }
+        let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if len < 2 {
+            break;
+        }
+        // SOF0, SOF1, SOF2, etc. – but not DHT (0xC4), JPG (0xC8), DAC (0xCC)
+        if (0xC0..=0xCF).contains(&marker)
+            && marker != 0xC4
+            && marker != 0xC8
+            && marker != 0xCC
+        {
+            let payload_start = i + 4;
+            let payload_end = i + 2 + len; // len includes the 2-byte length field
+            if payload_end <= bytes.len() && payload_end > payload_start {
+                let payload = &bytes[payload_start..payload_end];
+                if payload.len() >= 9 {
+                    let num_components = payload[5] as usize;
+                    if num_components > 0 {
+                        // First component (Y) sampling factors at offset 7
+                        let sampling = payload[7];
+                        let h = (sampling >> 4) & 0x0F;
+                        let v = sampling & 0x0F;
+                        return match (h, v) {
+                            (1, 1) => Some("4:4:4"),
+                            (2, 1) => Some("4:2:2"),
+                            (2, 2) => Some("4:2:0"),
+                            (4, 1) => Some("4:1:1"),
+                            (1, 2) => Some("4:4:0"),
+                            _ => None,
+                        };
+                    }
+                }
+            }
+        }
+        i += 2 + len; // skip entire segment
+    }
+    None
+}
+
+// Helper: parse WebP for chroma subsampling.
+fn webp_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
+    if !is_webp(bytes) {
+        return None;
+    }
+    let file_size = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+    let end = (8 + file_size).min(bytes.len());
+    let mut pos = 12;
+    while pos + 8 <= end {
+        let fourcc: [u8; 4] = bytes[pos..pos + 4].try_into().ok()?;
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        let payload_start = pos + 8;
+        let payload_end = payload_start + size;
+        if payload_end > bytes.len() {
+            break;
+        }
+        match &fourcc {
+            b"VP8 " => {
+                // Lossy WebP: parse frame tag for subsampling
+                let payload = &bytes[payload_start..payload_end];
+                if payload.len() >= 3 {
+                    // First 3 bytes: frame tag
+                    let tag = u32::from_le_bytes([payload[0], payload[1], payload[2], 0]);
+                    let chroma_bits = (tag >> 6) & 0x03;
+                    return match chroma_bits {
+                        0 => Some("4:2:0"),
+                        1 => Some("4:2:2"),
+                        2 => Some("4:4:4"),
+                        _ => None,
+                    };
+                }
+                return None;
+            }
+            b"VP8L" => {
+                // Lossless WebP: always 4:4:4
+                return Some("4:4:4");
+            }
+            _ => {}
+        }
+        pos = payload_end;
+        if size % 2 != 0 {
+            pos += 1;
+        }
+    }
+    None
+}
+
+// Helper: guess TIFF chroma format: uncompressed TIFF = 4:4:4
+fn tiff_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
+    if !is_tiff(bytes) {
+        return None;
+    }
+    // If the TIFF contains a JPEG stream, use the JPEG parser.
+    if bytes.windows(2).any(|w| w == [0xFF, 0xD8]) {
+        if let Some(jpeg_subsampling) = jpeg_chroma_subsampling(bytes) {
+            return Some(jpeg_subsampling);
+        }
+    }
+    Some("4:4:4")
+}
+
+/// ---- For HEIC ----
+
+/// Find a box payload by searching for its 4-byte type string.
+fn find_box_payload_by_type<'a>(bytes: &'a [u8], target: &[u8; 4]) -> Option<&'a [u8]> {
+    let mut pos = 0;
+    while pos + 8 <= bytes.len() {
+        if &bytes[pos..pos + 4] == target {
+            if pos < 4 {
+                return None;
+            }
+            let size = u32::from_be_bytes([
+                bytes[pos - 4],
+                bytes[pos - 3],
+                bytes[pos - 2],
+                bytes[pos - 1],
+            ]) as usize;
+            if size >= 8 && pos - 4 + size <= bytes.len() {
+                // payload starts after the type string (4 bytes)
+                let payload_start = pos + 4;
+                let payload_end = pos - 4 + size;
+                return Some(&bytes[payload_start..payload_end]);
+            }
+        }
+        pos += 1;
+    }
+    None
+}
+
+fn hevc_chroma_format(bytes: &[u8]) -> Option<&'static str> {
+    let payload = find_box_payload_by_type(bytes, b"hvcC")?;
+    if payload.len() >= 18 {
+        let chroma_format = payload[16] & 0x03;
+        return match chroma_format {
+            0 => Some("4:0:0"),
+            1 => Some("4:2:0"),
+            2 => Some("4:2:2"),
+            3 => Some("4:4:4"),
+            _ => None,
+        };
+    }
+    None
+}
+
+fn av1_chroma_format(bytes: &[u8]) -> Option<&'static str> {
+    let payload = find_box_payload_by_type(bytes, b"av1C")?;
+    if payload.len() >= 3 {
+        let subsampling_x = (payload[2] >> 3) & 0x01;
+        let subsampling_y = (payload[2] >> 2) & 0x01;
+        let mono = (payload[2] >> 4) & 0x01;
+        return match (mono, subsampling_x, subsampling_y) {
+            (1, _, _) => Some("4:0:0"),
+            (0, 0, 0) => Some("4:4:4"),
+            (0, 1, 0) => Some("4:2:2"),
+            (0, 1, 1) => Some("4:2:0"),
+            _ => None,
+        };
+    }
+    None
+}
+
+/// Determine HEIC chroma format by scanning for hvcC or av1C boxes.
+fn heic_chroma_format(bytes: &[u8]) -> Option<&'static str> {
+    hevc_chroma_format(bytes).or_else(|| av1_chroma_format(bytes))
+}
+
+pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageDetails {
+    let bits_per_pixel = color.bits_per_pixel();
+    let channels = color.channel_count();
+    let bit_depth = if channels > 0 {
+        format!("{} bits/channel", bits_per_pixel / (channels as u16))
+    } else {
+        "Unknown".to_string()
+    };
+
+    let has_alpha = matches!(color, ColorType::Rgba8 | ColorType::Rgba16);
+
+    // Determine color space
+    let colorspace = if format == "HEIC" {
+        // HEIC is almost always YCbCr (even if decoded to RGB)
+        (if has_alpha { "YCbCr + Alpha" } else { "YCbCr" }).to_string()
+    } else {
+        match color {
+            ColorType::Rgb8 | ColorType::Rgb16 => {
+                if format == "JPEG" || format == "JPG" { "YCbCr" } else { "RGB" }
+            }
+            ColorType::Rgba8 | ColorType::Rgba16 => {
+                if format == "JPEG" || format == "JPG" { "YCbCr + Alpha" } else { "RGBA" }
+            }
+            ColorType::L8 | ColorType::L16 => "Grayscale",
+            _ => "Unknown",
+        }.to_string()
+    };
+
+    // Determine chroma format from actual file structure
+    let chroma_format = match format {
+        "PNG" => Some("4:4:4".to_string()),
+        "JPEG" => jpeg_chroma_subsampling(bytes).map(|s| s.to_string()),
+        "WEBP" => webp_chroma_subsampling(bytes).map(|s| s.to_string()),
+        "TIFF" => tiff_chroma_subsampling(bytes).map(|s| s.to_string()),
+        "HEIC" => heic_chroma_format(bytes).map(|s| s.to_string()),
+        _ => None,
+    };
+
+    ImageDetails {
+        bit_depth,
+        has_alpha,
+        colorspace,
+        chroma_format,
+    }
 }
 
 /// Read EXIF metadata from a file path (supporting JPEG, TIFF, and HEIC).

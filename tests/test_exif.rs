@@ -8,7 +8,7 @@ mod common;
 mod tests {
     use bat_img_rs::exif::{
         extract_exif_tiff, rewrite_exif_metadata, is_png, is_tiff, read_orientation,
-        strip_all_metadata, strip_gps_metadata, read_exif
+        strip_all_metadata, strip_gps_metadata, read_exif, get_image_details
     };
     use image::{DynamicImage, RgbImage};
     use tempfile::{TempDir, tempdir};
@@ -18,6 +18,46 @@ mod tests {
     use super::common::{png_with_exif_chunk, webp_with_exif_chunk, build_tiff_le,
         build_tiff_be, jpeg_with_exif, build_tiff_with_gps
     };
+
+    #[test]
+    fn image_details_jpeg_with_real_file() {
+        let img = RgbImage::from_pixel(8, 8, image::Rgb([255, 0, 0]));
+        let mut jpeg_bytes = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 80);
+        encoder.encode(img.as_raw(), 8, 8, image::ExtendedColorType::Rgb8).unwrap();
+
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg_bytes);
+        assert_eq!(details.bit_depth, "8 bits/channel");
+        assert!(!details.has_alpha);
+        assert_eq!(details.colorspace, "YCbCr");
+        assert_eq!(details.chroma_format, Some("4:4:4".to_string())); // typical for default encoder
+    }
+
+    #[test]
+    fn image_details_png() {
+        let img = RgbImage::from_pixel(8, 8, image::Rgb([0, 255, 0]));
+        let mut png_bytes = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png).unwrap();
+
+        let details = get_image_details(image::ColorType::Rgb8, "PNG", &png_bytes);
+        assert_eq!(details.chroma_format, Some("4:4:4".to_string()));
+    }
+
+    #[test]
+    fn image_details_heic() {
+        use bat_img_rs::heic;
+        use libheif_rs::CompressionFormat;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.heic");
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([0, 0, 255])));
+        if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_ok() {
+            let raw = std::fs::read(&path).unwrap();
+            let details = get_image_details(image::ColorType::Rgb8, "HEIC", &raw);
+            assert_eq!(details.colorspace, "YCbCr");
+            assert!(details.chroma_format.is_some()); // should be 4:2:0 or similar
+        }
+    }
 
     // ── Helper to synthesize minimal HEIC structure ─────────────────────────────
     fn mock_heic_with_exif(tiff_payload: &[u8]) -> Vec<u8> {
