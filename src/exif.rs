@@ -237,11 +237,7 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
     // Determine color space
     let colorspace = if format == "HEIC" {
         // HEIC is almost always YCbCr (even if decoded to RGB)
-        if has_alpha {
-            "YCbCr + Alpha".to_string()
-        } else {
-            "YCbCr".to_string()
-        }
+        (if has_alpha { "YCbCr + Alpha" } else { "YCbCr" }).to_string()
     } else {
         match color {
             ColorType::Rgb8 | ColorType::Rgb16 => {

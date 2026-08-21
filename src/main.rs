@@ -181,10 +181,8 @@ fn main() -> Result<()> {
                     println!("    {:<width$} : {}", "Focal Length", formatted_fl);
                     found_any = true;
                 }
-                if exif_data.gps_present {
-                    println!("    {:<width$} : {}", "GPS Data".red(), "Present");
-                    found_any = true;
-                }
+                let has_gps = if exif_data.gps_present { "Present" } else { "None" }.to_string();
+                println!("    {:<width$} : {}", "GPS Data".red(), has_gps);
 
                 if !found_any {
                     println!("    {}", "No standard camera tags found in EXIF.".dimmed());
