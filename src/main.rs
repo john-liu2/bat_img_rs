@@ -7,6 +7,7 @@ mod processor;
 
 use anyhow::Result;
 use colored::Colorize;
+use image::ColorType;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -20,10 +21,7 @@ const TAB_WIDTH: usize = 15;
 
 fn main() -> Result<()> {
     env_logger::init();
-
     let args = cli::parse();
-
-    // ── Banner ──────────────────────────────────────────────────────────────
     if !args.quiet {
         println!(
             "\n  {} {}\n",
@@ -43,8 +41,8 @@ fn main() -> Result<()> {
     }
 
     // ── Display Detailed Info & Exit ─────────────────────────────────────────
-    let width = TAB_WIDTH;
     if args.info {
+        let width = TAB_WIDTH;
         let total = files.len();
         for (i, file) in files.iter().enumerate() {
             // Separator between files
@@ -55,7 +53,6 @@ fn main() -> Result<()> {
                 i + 1,
                 total
             );
-            println!("{}", "─".repeat(60).dimmed());
 
             // 1. File System Metadata
             if let Ok(metadata) = std::fs::metadata(file) {
@@ -75,7 +72,7 @@ fn main() -> Result<()> {
                 );
             }
 
-            // 2. Format & Dimensions
+            // 2. Format & more details
             let is_heic_file = heic::is_heic(file);
             let format_str = if is_heic_file {
                 "HEIC".to_string()
@@ -86,33 +83,56 @@ fn main() -> Result<()> {
             };
             println!("  {:<width$} : {}", "Format".bold(), format_str.blue());
 
-            // Extract dimensions and color type (handling HEIC via libheif decode)
-            let (dimensions, color_type) = if is_heic_file {
-                if let Ok((img, _, _)) = heic::decode(file) {
-                    (Some((img.width(), img.height())), Some(img.color()))
+            // ── Decode image to get more details
+            let raw_bytes = std::fs::read(file).unwrap_or_default();
+            let (img, img_details) = if is_heic_file {
+                if let Ok((decoded_img, _, _)) = heic::decode(file) {
+                    let details = exif::get_image_details(decoded_img.color(), "HEIC", &raw_bytes);
+                    (Some(decoded_img), details)
                 } else {
-                    (None, None)
+                    (None, exif::get_image_details(ColorType::Rgb8, "HEIC", &raw_bytes))
                 }
             } else {
-                let dims = image::ImageReader::open(file)
-                    .ok()
-                    .and_then(|r| r.with_guessed_format().ok())
-                    .and_then(|d| d.into_dimensions().ok());
-                let color = image::open(file).ok().map(|img| img.color());
-                (dims, color)
+                if let Ok(img) = image::open(file) {
+                    let details = exif::get_image_details(img.color(), &format_str.to_uppercase(), &raw_bytes);
+                    (Some(img), details)
+                } else {
+                    (None, exif::get_image_details(ColorType::Rgb8, &format_str.to_uppercase(), &raw_bytes))
+                }
             };
-            if let Some((w, h)) = dimensions {
+
+            if let Some(ref img) = img {
+                let (w, h) = (img.width(), img.height());
                 let megapixels = (w as f64 * h as f64) / 1_000_000.0;
                 println!(
-                    "  {:<width$} : {}x{} ({:.2} MP)",
+                    "  {:<width$} : {}x{} ({:.1} MP)",
                     "Dimensions".bold(),
                     w,
                     h,
                     megapixels
                 );
             }
-            if let Some(color) = color_type {
-                println!("  {:<width$} : {:?}", "Color Type".bold(), color);
+            println!(
+                "  {:<width$} : {}",
+                "Bit Depth".bold(),
+                img_details.bit_depth
+            );
+            println!(
+                "  {:<width$} : {}",
+                "Alpha Channel".bold(),
+                if img_details.has_alpha { "Yes" } else { "No" }
+            );
+            println!(
+                "  {:<width$} : {}",
+                "Colorspace".bold(),
+                img_details.colorspace
+            );
+            if let Some(chroma) = img_details.chroma_format {
+                println!(
+                    "  {:<width$} : {}",
+                    "Chroma Format".bold(),
+                    chroma
+                );
             }
 
             // 3. EXIF Data
