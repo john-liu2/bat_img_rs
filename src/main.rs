@@ -61,9 +61,9 @@ fn main() -> Result<()> {
             if let Ok(metadata) = std::fs::metadata(file) {
                 let bytes = metadata.len();
                 let readable_size = if bytes >= 1_048_576 {
-                    format!("{:.2} MB", bytes as f64 / 1_048_576.0)
+                    format!("{:.1} MB", bytes as f64 / 1_048_576.0)
                 } else if bytes >= 1024 {
-                    format!("{:.2} KB", bytes as f64 / 1024.0)
+                    format!("{:.0} KB", bytes as f64 / 1024.0)
                 } else {
                     format!("{} B", bytes)
                 };
