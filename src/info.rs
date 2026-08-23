@@ -173,16 +173,10 @@ pub fn format_info(file: &Path) -> String {
         out.push_str(&format!("    {:<width$} : {}\n", "GPS Data".red(), has_gps));
 
         if !found_any {
-            out.push_str(&format!(
-                "    {}\n",
-                "No standard camera tags found in EXIF.".dimmed()
-            ));
+            out.push_str(&format!("    {}\n", "No standard camera tags found in EXIF."));
         }
     } else {
-        out.push_str(&format!(
-            "    {}\n",
-            "None (or unreadable EXIF header)".dimmed()
-        ));
+        out.push_str(&format!("    {}\n", "None (or unreadable EXIF header)"));
     }
     out.push('\n'); // Blank line after each file
     out

@@ -5,8 +5,7 @@ mod tests {
     use std::process::Command;
     use std::path::PathBuf;
     use tempfile::{tempdir};
-    use image::RgbImage;
-    use super::common::{create_test_jpeg, create_test_png};
+    use super::common::{create_test_heic, create_test_jpeg, create_test_png};
 
     fn run_info(path: &PathBuf) -> String {
         let output = Command::new("cargo")
@@ -57,17 +56,11 @@ mod tests {
 
     #[test]
     fn info_shows_details_for_heic() {
-        use bat_img_rs::heic;
-        use libheif_rs::CompressionFormat;
-
         let dir = tempdir().unwrap();
-        let path = dir.path().join("test.heic");
-        let img = image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
-        if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
-            // Skip if encoding fails (libheif not installed)
+        let Some(path) = create_test_heic(&dir, "test.heic") else {
+            println!("Skipping test: libheif encoding failed.");
             return;
-        }
-
+        };
         let stdout = run_info(&path);
 
         assert!(stdout.contains("Dimensions") && stdout.contains("100x100"));

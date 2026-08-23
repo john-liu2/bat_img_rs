@@ -8,11 +8,10 @@ mod processor;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
-// use image::ColorType;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 

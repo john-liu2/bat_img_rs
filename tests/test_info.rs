@@ -2,13 +2,9 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use image::{Rgb, RgbImage};
-    use libheif_rs::CompressionFormat;
     use std::path::Path;
-    // use std::path::PathBuf;
     use tempfile::{tempdir};
-    use super::common::{create_test_jpeg, create_test_png};
-    use bat_img_rs::heic;
+    use super::common::{create_test_heic, create_test_jpeg, create_test_png};
     use bat_img_rs::info::format_info;
 
     #[test]
@@ -49,19 +45,11 @@ mod tests {
 
     #[test]
     fn heic_info_works_if_encoder_available() {
-
         let dir = tempdir().unwrap();
-        let path = dir.path().join("test.heic");
-        let img = image::DynamicImage::ImageRgb8(RgbImage::from_pixel(
-            100,
-            100,
-            Rgb([0, 0, 255]),
-        ));
-        if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
-            eprintln!("Skipping HEIC test – encoding not supported");
+        let Some(path) = create_test_heic(&dir, "test.heic") else {
+            println!("Skipping test: libheif encoding failed.");
             return;
-        }
-
+        };
         let info = format_info(&path);
         assert!(info.contains("Format"));
         assert!(info.contains("HEIC"));

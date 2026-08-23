@@ -1,11 +1,10 @@
-//! HEIC / HEIF decoding and encoding via `libheif-rs`.
-//!
-//! ## System requirements (macOS)
-//!
-//!   brew install libheif
-//!
-//! `libheif` brings in `libde265` (H.265/HEVC decoder) and optionally
-//! `libaom` (AV1/AVIF) as transitive dependencies.
+// HEIC / HEIF decoding and encoding via `libheif-rs`.
+//
+// ## System requirements (macOS)
+//   brew install libheif
+//
+// `libheif` brings in `libde265` (H.265/HEVC decoder) and
+// `libaom` (AV1/AVIF) as transitive dependencies.
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, RgbImage, RgbaImage};
@@ -107,7 +106,6 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
         Some("heif") => CompressionFormat::Av1,
         _ => CompressionFormat::Hevc,
     };
-
     let meta = HeicMeta { compression };
 
     // ── Extract EXIF metadata (best-effort) ──────────────────────────────────
@@ -188,7 +186,6 @@ pub fn encode(
         img,
         DynamicImage::ImageRgba8(_) | DynamicImage::ImageRgba16(_)
     );
-
     let (width, height) = (img.width(), img.height());
 
     // ── Build libheif Image from pixel buffer ────────────────────────────────
@@ -276,7 +273,6 @@ pub fn encode(
         ctx.add_exif_metadata(&handle, &exif_block)
             .context("libheif: cannot attach EXIF metadata")?;
     }
-
     ctx.write_to_file(
         path.to_str()
             .context("HEIC output path is not valid UTF-8")?,
