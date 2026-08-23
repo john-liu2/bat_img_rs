@@ -14,6 +14,7 @@ mod tests {
         let info = format_info(&path);
 
         assert!(info.contains("File Size"));
+        assert!(info.contains("Last Modified"));
         assert!(info.contains("Format"));
         // Case‑insensitive check for "jpeg"
         assert!(info.to_lowercase().contains("jpeg"));
@@ -32,6 +33,7 @@ mod tests {
         let info = format_info(&path);
 
         assert!(info.contains("File Size"));
+        assert!(info.contains("Last Modified"));
         assert!(info.contains("Format"));
         // Case‑insensitive check for "png"
         assert!(info.to_lowercase().contains("png"));
@@ -51,6 +53,9 @@ mod tests {
             return;
         };
         let info = format_info(&path);
+
+        assert!(info.contains("File Size"));
+        assert!(info.contains("Last Modified"));
         assert!(info.contains("Format"));
         assert!(info.contains("HEIC"));
         assert!(info.contains("Dimensions"));

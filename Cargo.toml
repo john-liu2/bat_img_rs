@@ -19,6 +19,9 @@ path = "src/lib.rs"
 # CLI argument parsing
 clap = { version = "4", features = ["derive", "color"] }
 
+# Format SystemTime beautifully
+chrono = "0.4"
+
 # Image processing (resize, border, format conversion)
 #image = { version = "0.25", features = ["jpeg", "png", "webp", "tiff", "gif"] }
 image = { version = "0.25", default-features = false, features = [

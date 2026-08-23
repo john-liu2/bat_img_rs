@@ -29,6 +29,14 @@ pub fn format_info(file: &Path) -> String {
             readable_size,
             format!("{} bytes", bytes).dimmed()
         ));
+        if let Ok(modified) = metadata.modified() {
+            let datetime: chrono::DateTime<chrono::Local> = modified.into();
+            out.push_str(&format!(
+                "  {:<width$} : {}\n",
+                "Last Modified".bold(),
+                datetime.format("%Y-%m-%d %H:%M")
+            ));
+        }
     }
 
     // Format
