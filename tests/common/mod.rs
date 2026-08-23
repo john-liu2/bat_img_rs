@@ -5,6 +5,23 @@ use tempfile::TempDir;
 use std::path::PathBuf;
 use exif_lib as exif;
 
+// Used in test_cli.rs, test_info.rs
+#[allow(dead_code)]
+pub fn create_test_jpeg(dir: &TempDir, name: &str) -> PathBuf {
+    let path = dir.path().join(name);
+    let img = RgbImage::from_pixel(100, 100, image::Rgb([255, 0, 0]));
+    img.save(&path).unwrap();
+    path
+}
+
+#[allow(dead_code)]
+pub fn create_test_png(dir: &TempDir, name: &str) -> PathBuf {
+    let path = dir.path().join(name);
+    let img = RgbImage::from_pixel(100, 100, image::Rgb([0, 255, 0]));
+    img.save(&path).unwrap();
+    path
+}
+
 // ── TIFF / EXIF byte-building helpers ─────────────────────────────────────
 
 #[allow(dead_code)]

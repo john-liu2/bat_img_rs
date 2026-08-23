@@ -1,0 +1,82 @@
+mod common;
+
+#[cfg(test)]
+mod tests {
+    use image::{Rgb, RgbImage};
+    use libheif_rs::CompressionFormat;
+    use std::path::Path;
+    // use std::path::PathBuf;
+    use tempfile::{tempdir};
+    use super::common::{create_test_jpeg, create_test_png};
+    use bat_img_rs::heic;
+    use bat_img_rs::info::format_info;
+
+    #[test]
+    fn jpeg_info_contains_key_fields() {
+        let dir = tempdir().unwrap();
+        let path = create_test_jpeg(&dir, "test.jpg");
+        let info = format_info(&path);
+
+        assert!(info.contains("File Size"));
+        assert!(info.contains("Format"));
+        // Case‑insensitive check for "jpeg"
+        assert!(info.to_lowercase().contains("jpeg"));
+        assert!(info.contains("Dimensions"));
+        assert!(info.contains("100x100"));
+        assert!(info.contains("Bit Depth"));
+        assert!(info.contains("Alpha Channel"));
+        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Chroma Format"));
+    }
+
+    #[test]
+    fn png_info_contains_key_fields() {
+        let dir = tempdir().unwrap();
+        let path = create_test_png(&dir, "test.png");
+        let info = format_info(&path);
+
+        assert!(info.contains("File Size"));
+        assert!(info.contains("Format"));
+        // Case‑insensitive check for "png"
+        assert!(info.to_lowercase().contains("png"));
+        assert!(info.contains("Dimensions"));
+        assert!(info.contains("100x100"));
+        assert!(info.contains("Bit Depth"));
+        assert!(info.contains("Alpha Channel"));
+        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Chroma Format"));
+    }
+
+    #[test]
+    fn heic_info_works_if_encoder_available() {
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.heic");
+        let img = image::DynamicImage::ImageRgb8(RgbImage::from_pixel(
+            100,
+            100,
+            Rgb([0, 0, 255]),
+        ));
+        if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
+            eprintln!("Skipping HEIC test – encoding not supported");
+            return;
+        }
+
+        let info = format_info(&path);
+        assert!(info.contains("Format"));
+        assert!(info.contains("HEIC"));
+        assert!(info.contains("Dimensions"));
+        assert!(info.contains("100x100"));
+        assert!(info.contains("Bit Depth"));
+        assert!(info.contains("Alpha Channel"));
+        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Chroma Format"));
+    }
+
+    #[test]
+    fn missing_file_does_not_panic() {
+        let info = bat_img_rs::info::format_info(Path::new("/nonexistent/file.jpg"));
+        assert!(!info.is_empty());
+        assert!(!info.contains("panic"));
+    }
+}

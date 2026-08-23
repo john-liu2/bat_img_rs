@@ -4,5 +4,6 @@ pub mod cli;
 pub mod error;
 pub mod exif;
 pub mod heic;
+pub mod info;
 pub mod pipeline;
 pub mod processor;

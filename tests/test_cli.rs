@@ -4,22 +4,9 @@ mod common;
 mod tests {
     use std::process::Command;
     use std::path::PathBuf;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{tempdir};
     use image::RgbImage;
-
-    fn create_test_jpeg(dir: &TempDir, name: &str) -> PathBuf {
-        let path = dir.path().join(name);
-        let img = RgbImage::from_pixel(100, 100, image::Rgb([255, 0, 0]));
-        img.save(&path).unwrap();
-        path
-    }
-
-    fn create_test_png(dir: &TempDir, name: &str) -> PathBuf {
-        let path = dir.path().join(name);
-        let img = RgbImage::from_pixel(100, 100, image::Rgb([0, 255, 0]));
-        img.save(&path).unwrap();
-        path
-    }
+    use super::common::{create_test_jpeg, create_test_png};
 
     fn run_info(path: &PathBuf) -> String {
         let output = Command::new("cargo")
