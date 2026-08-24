@@ -1,4 +1,4 @@
-//! EXIF metadata manipulation for JPEG, PNG, TIFF, WebP, and JPEG 2000.
+//! EXIF metadata manipulation for JPEG, PNG, TIFF, WebP, and HEIC
 //!
 //! GPS removal rewrites the embedded TIFF/EXIF block in-place where possible.
 //! Orientation is read from the same EXIF block across all supported containers.
@@ -12,7 +12,7 @@ use std::path::Path;
 
 // Format signatures
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
-const EXIF_HEADER: &[u8] = b"Exif\x00\x00";
+const EXIF_HEADER: &[u8] = b"Exif\0\0";  // 6-byte byte array
 const PNG_SIG: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
 
 #[derive(Debug, Default)]
