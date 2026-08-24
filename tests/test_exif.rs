@@ -7,24 +7,96 @@ mod common;
 #[cfg(test)]
 mod tests {
     use bat_img_rs::exif::{
-        extract_exif_tiff, rewrite_exif_metadata, is_png, is_tiff, read_orientation,
-        strip_all_metadata, strip_gps_metadata, read_exif, get_image_details
+        extract_exif_tiff, extract_heic_exif_raw, get_image_details, is_png, is_tiff, read_exif,
+        read_orientation, replace_heic_exif_payload, rewrite_exif_metadata, strip_all_metadata,
+        strip_gps_metadata, parse_exif_bytes, tiff_from_heic_metadata
     };
-    use image::{DynamicImage, RgbImage};
-    use tempfile::{TempDir, tempdir};
-    use libheif_rs::CompressionFormat;
     use bat_img_rs::heic;
+    use image::{DynamicImage, RgbImage};
+    use libheif_rs::CompressionFormat;
+    use tempfile::{TempDir, tempdir};
 
-    use super::common::{png_with_exif_chunk, webp_with_exif_chunk, build_tiff_le,
-        build_tiff_be, jpeg_with_exif, build_tiff_with_gps, create_test_heic
+    use super::common::{
+        build_tiff_be, build_tiff_le, build_tiff_with_gps, create_test_heic, jpeg_with_exif,
+        png_with_exif_chunk, webp_with_exif_chunk,
     };
+
+    // Temp local manual debug 
+    // #[test]
+    // fn debug_read_exif_manual() {
+    //     // Get home directory from environment variable
+    //     let home = std::env::var("HOME").expect("HOME not set");
+    //     let path = std::path::Path::new(&home).join("Downloads").join("IMG_0496.HEIC");
+    //     assert!(path.exists(), "File does not exist at: {:?}", path);
+    //     let result = read_exif(&path);
+    //     println!("EXIF Info: {:?}", result);
+
+    //     assert!(result.is_some(), "Failed to read EXIF from IMG_0496.HEIC");
+    // }
+
+    #[test]
+    fn parses_apple_style_heif_exif_with_optional_ifd_error() {
+        // The HEIF offset points six bytes past the offset field, over the
+        // `Exif\0\0` prefix, to a big-endian TIFF header.  This is the layout
+        // returned by libheif for IMG_0496.HEIC.
+        let tiff = [
+            b'M', b'M', 0, 42, 0, 0, 0, 8, // TIFF header and IFD0 offset
+            0, 2, // two IFD0 entries
+            0x01, 0x0f, 0, 2, 0, 0, 0, 6, 0, 0, 0, 38, // Make = "Apple"
+            0x87, 0x69, 0, 4, 0, 0, 0, 1, 0, 0, 0, 44, // Exif IFD pointer
+            0, 0, 0, 0, // no thumbnail IFD
+            b'A', b'p', b'p', b'l', b'e', 0, 0, 0, // empty child IFD
+            0, 0, 0, 4, // unsupported child IFD next-pointer
+        ];
+        let mut metadata = 6u32.to_be_bytes().to_vec();
+        metadata.extend_from_slice(b"Exif\0\0");
+        metadata.extend_from_slice(&tiff);
+
+        let extracted = tiff_from_heic_metadata(&metadata)
+            .expect("HEIF EXIF offset must locate the TIFF header");
+        assert_eq!(extracted, tiff);
+
+        let info = parse_exif_bytes(extracted)
+            .expect("a malformed optional IFD must not discard valid IFD0 tags");
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+    }
+
+    #[test]
+    fn read_exif_native_fallback_for_heic() {
+        let dir = tempdir().unwrap();
+        let input_path = dir.path().join("test_native.heic");
+
+        // Create a HEIC using the existing helper
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
+        let tiff = build_tiff_with_gps(0x1234);
+        heic::encode(
+            &img,
+            &input_path,
+            CompressionFormat::Hevc,
+            Some(80),
+            Some(&tiff),
+        )
+        .unwrap();
+
+        // Read EXIF using the fixed function
+        let exif_info = read_exif(&input_path);
+        assert!(exif_info.is_some());
+        let info = exif_info.unwrap();
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+        assert!(
+            info.gps_present,
+            "GPS data should be readable in a pure read operation"
+        );
+    }
 
     #[test]
     fn image_details_jpeg_with_real_file() {
         let img = RgbImage::from_pixel(8, 8, image::Rgb([255, 0, 0]));
         let mut jpeg_bytes = Vec::new();
         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 80);
-        encoder.encode(img.as_raw(), 8, 8, image::ExtendedColorType::Rgb8).unwrap();
+        encoder
+            .encode(img.as_raw(), 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
 
         let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg_bytes);
         assert_eq!(details.bit_depth, "8 bits/channel");
@@ -37,7 +109,11 @@ mod tests {
     fn image_details_png() {
         let img = RgbImage::from_pixel(8, 8, image::Rgb([0, 255, 0]));
         let mut png_bytes = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png).unwrap();
+        img.write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
 
         let details = get_image_details(image::ColorType::Rgb8, "PNG", &png_bytes);
         assert_eq!(details.chroma_format, Some("4:4:4".to_string()));
@@ -64,13 +140,13 @@ mod tests {
         let ftyp_size = 20; // 4 (size) + 4 (type) + 4 (major) + 4 (minor) + 4 (compat)
         bytes.extend_from_slice(&(ftyp_size as u32).to_be_bytes());
         bytes.extend_from_slice(b"ftyp");
-        bytes.extend_from_slice(b"heic");      // major brand
+        bytes.extend_from_slice(b"heic"); // major brand
         bytes.extend_from_slice(&0u32.to_be_bytes()); // minor version
-        bytes.extend_from_slice(b"mif1");      // compatible brand
+        bytes.extend_from_slice(b"mif1"); // compatible brand
 
         // ── meta box ──
         let exif_box_size = 8 + 4 + tiff_payload.len(); // header + fullbox + payload
-        let meta_payload_len = 4 + exif_box_size;      // version/flags + Exif box
+        let meta_payload_len = 4 + exif_box_size; // version/flags + Exif box
         let meta_box_len = 8 + meta_payload_len;
         bytes.extend_from_slice(&(meta_box_len as u32).to_be_bytes());
         bytes.extend_from_slice(b"meta");
@@ -95,7 +171,14 @@ mod tests {
         let tiff = build_tiff_with_gps(0x1234);
 
         // Encode HEIC with EXIF + GPS metadata
-        heic::encode(&img, &input_path, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
+        heic::encode(
+            &img,
+            &input_path,
+            CompressionFormat::Hevc,
+            Some(80),
+            Some(&tiff),
+        )
+        .unwrap();
 
         // Strip GPS metadata
         let raw_bytes = std::fs::read(&input_path).unwrap();
@@ -107,7 +190,10 @@ mod tests {
             .expect("read_exif must return valid EXIF metadata after strip_gps");
 
         assert_eq!(exif_info.make.as_deref(), Some("Apple"));
-        assert!(!exif_info.gps_present, "GPS data should no longer be present");
+        assert!(
+            !exif_info.gps_present,
+            "GPS data should no longer be present"
+        );
     }
 
     // ── HEIC Container Level Tests ───────────────────────────────────────────────
@@ -131,8 +217,6 @@ mod tests {
 
     #[test]
     fn heic_extract_and_replace_raw_exif() {
-        use bat_img_rs::exif::{extract_heic_exif_raw, replace_heic_exif_payload};
-
         let tiff = build_tiff_with_gps(0x5678);
         let heic_bytes = mock_heic_with_exif(&tiff);
 
@@ -191,9 +275,17 @@ mod tests {
     fn format_aperture_normalizes_f_number_and_floats() {
         // Double prefix + long float: f/f/1.7799999713880652
         let raw = "f/f/1.7799999713880652";
-        let clean_f = raw.trim().trim_start_matches("f/").trim_start_matches("f/").trim_start_matches('f').trim();
+        let clean_f = raw
+            .trim()
+            .trim_start_matches("f/")
+            .trim_start_matches("f/")
+            .trim_start_matches('f')
+            .trim();
         let formatted_f = if let Ok(val) = clean_f.parse::<f64>() {
-            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+            format!("{:.2}", val)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
         } else {
             clean_f.to_string()
         };
@@ -201,9 +293,16 @@ mod tests {
 
         // Single prefix: f/2.8
         let raw2 = "f/2.8000";
-        let clean_f2 = raw2.trim().trim_start_matches("f/").trim_start_matches('f').trim();
+        let clean_f2 = raw2
+            .trim()
+            .trim_start_matches("f/")
+            .trim_start_matches('f')
+            .trim();
         let formatted_f2 = if let Ok(val) = clean_f2.parse::<f64>() {
-            format!("{:.2}", val).trim_end_matches('0').trim_end_matches('.').to_string()
+            format!("{:.2}", val)
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_string()
         } else {
             clean_f2.to_string()
         };
@@ -514,8 +613,8 @@ mod tests {
 
         // GPSInfoIFDPointer tag = 0x8825
         let tiff = build_tiff_le(&[
-            (0x0112, 3, 6),       // Orientation
-            (0x8825, 4, 1234),    // GPS pointer
+            (0x0112, 3, 6),    // Orientation
+            (0x8825, 4, 1234), // GPS pointer
         ]);
 
         let stripped = strip_all_metadata(&tiff).unwrap();

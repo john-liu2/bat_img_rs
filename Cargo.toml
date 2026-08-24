@@ -29,7 +29,6 @@ image = { version = "0.25", default-features = false, features = [
 ] }
 
 # HEIC/HEIF decoding via libheif (requires libheif + libde265 system libraries)
-#libheif-rs = "0.22"
 libheif-rs = { version = "2.7", features = ["image"] }
 
 # EXIF metadata manipulation (strip GPS, read metadata)
