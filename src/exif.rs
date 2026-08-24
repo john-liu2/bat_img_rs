@@ -296,9 +296,9 @@ pub fn read_exif(path: &Path) -> Option<ExifInfo> {
     parse_exif_bytes(&tiff_bytes)
 }
 
+// Apple HEIC files can contain optional IFDs that kamadak-exif does not
+// support.  Retain the valid standard fields parsed before such an IFD.
 pub fn parse_exif_bytes(bytes: &[u8]) -> Option<ExifInfo> {
-    // Apple HEIC files can contain optional IFDs that kamadak-exif does not
-    // support.  Retain the valid standard fields parsed before such an IFD.
     let mut reader = Reader::new();
     reader.continue_on_error(true);
     let exif_data = match reader
@@ -552,11 +552,9 @@ pub fn tiff_from_heic_metadata(data: &[u8]) -> Option<&[u8]> {
     if data.starts_with(b"Exif\0\0") {
         return data.get(6..).filter(|tiff| is_tiff_header(tiff));
     }
-
     if is_tiff_header(data) {
         return Some(data);
     }
-
     let offset = u32::from_be_bytes(data.get(..4)?.try_into().ok()?) as usize;
     let tiff_start = 4usize.checked_add(offset)?;
     data.get(tiff_start..).filter(|tiff| is_tiff_header(tiff))
