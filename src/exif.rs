@@ -3,11 +3,12 @@
 //! GPS removal rewrites the embedded TIFF/EXIF block in-place where possible.
 //! Orientation is read from the same EXIF block across all supported containers.
 
-use anyhow::{Context, Result};
-use image::ColorType;
-use std::path::Path;
 use crate::heic;
+use anyhow::{Context, Result};
 use exif_lib::{In, Reader, Tag};
+use image::ColorType;
+use libheif_rs::{HeifContext, ItemId};
+use std::path::Path;
 
 // Format signatures
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
@@ -34,7 +35,6 @@ pub struct ImageDetails {
     pub chroma_format: Option<String>,
 }
 
-
 // Helper: parse JPEG SOF marker for chroma subsampling.
 fn jpeg_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
     if !is_jpeg(bytes) {
@@ -59,11 +59,7 @@ fn jpeg_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
             break;
         }
         // SOF0, SOF1, SOF2, etc. – but not DHT (0xC4), JPG (0xC8), DAC (0xCC)
-        if (0xC0..=0xCF).contains(&marker)
-            && marker != 0xC4
-            && marker != 0xC8
-            && marker != 0xCC
-        {
+        if (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
             let payload_start = i + 4;
             let payload_end = i + 2 + len; // len includes the 2-byte length field
             if payload_end <= bytes.len() && payload_end > payload_start {
@@ -241,14 +237,23 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
     } else {
         match color {
             ColorType::Rgb8 | ColorType::Rgb16 => {
-                if format == "JPEG" || format == "JPG" { "YCbCr" } else { "RGB" }
+                if format == "JPEG" || format == "JPG" {
+                    "YCbCr"
+                } else {
+                    "RGB"
+                }
             }
             ColorType::Rgba8 | ColorType::Rgba16 => {
-                if format == "JPEG" || format == "JPG" { "YCbCr + Alpha" } else { "RGBA" }
+                if format == "JPEG" || format == "JPG" {
+                    "YCbCr + Alpha"
+                } else {
+                    "RGBA"
+                }
             }
             ColorType::L8 | ColorType::L16 => "Grayscale",
             _ => "Unknown",
-        }.to_string()
+        }
+        .to_string()
     };
 
     // Determine chroma format from actual file structure
@@ -273,28 +278,75 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
 pub fn read_exif(path: &Path) -> Option<ExifInfo> {
     let raw_bytes = std::fs::read(path).ok()?;
 
-    // 1. Try reading directly as a HEIC container first
+    // 1. Try extracting from HEIC using libheif's native EXIF extraction
+    if heic::is_heic_bytes(&raw_bytes) {
+        if let Some(heic_exif) = extract_heic_exif_native(&raw_bytes) {
+            if let Some(info) = parse_exif_bytes(&heic_exif) {
+                return Some(info);
+            }
+        }
+    }
+    // 2. Try extracting using our custom container scanning
     let tiff_bytes = if let Some(extracted) = extract_heic_exif_raw(&raw_bytes) {
         extracted
     } else {
-        raw_bytes
+        raw_bytes.clone()
     };
-    // 2. Parse EXIF using Reader::read_raw with fallback to read_from_container
-    let exif_data = Reader::new()
-        .read_raw(tiff_bytes.clone())
-        .or_else(|_| Reader::new().read_from_container(&mut std::io::Cursor::new(&tiff_bytes)))
-        .ok()?;
+    // 3. Attempt to parse the TIFF
+    parse_exif_bytes(&tiff_bytes)
+}
 
+pub fn parse_exif_bytes(bytes: &[u8]) -> Option<ExifInfo> {
+    // Apple HEIC files can contain optional IFDs that kamadak-exif does not
+    // support.  Retain the valid standard fields parsed before such an IFD.
+    let mut reader = Reader::new();
+    reader.continue_on_error(true);
+    let exif_data = match reader
+        .read_raw(bytes.to_vec())
+        .or_else(|error| error.distill_partial_result(|_| {}))
+    {
+        Ok(exif_data) => exif_data,
+        Err(_) => {
+            let mut reader = Reader::new();
+            reader.continue_on_error(true);
+            reader
+                .read_from_container(&mut std::io::Cursor::new(bytes))
+                .or_else(|error| error.distill_partial_result(|_| {}))
+                .ok()?
+        }
+    };
+    parse_exif_info(&exif_data)
+}
+
+fn parse_exif_info(exif_data: &exif_lib::Exif) -> Option<ExifInfo> {
     let mut info = ExifInfo::default();
 
     if let Some(field) = exif_data.get_field(Tag::Make, In::PRIMARY) {
-        info.make = Some(field.display_value().to_string().trim_matches('"').to_string());
+        info.make = Some(
+            field
+                .display_value()
+                .to_string()
+                .trim_matches('"')
+                .to_string(),
+        );
     }
     if let Some(field) = exif_data.get_field(Tag::Model, In::PRIMARY) {
-        info.model = Some(field.display_value().to_string().trim_matches('"').to_string());
+        info.model = Some(
+            field
+                .display_value()
+                .to_string()
+                .trim_matches('"')
+                .to_string(),
+        );
     }
     if let Some(field) = exif_data.get_field(Tag::DateTime, In::PRIMARY) {
-        info.date_time = Some(field.display_value().to_string().trim_matches('"').to_string());
+        info.date_time = Some(
+            field
+                .display_value()
+                .to_string()
+                .trim_matches('"')
+                .to_string(),
+        );
     }
     if let Some(field) = exif_data.get_field(Tag::PhotographicSensitivity, In::PRIMARY) {
         info.iso = Some(field.display_value().to_string());
@@ -309,8 +361,12 @@ pub fn read_exif(path: &Path) -> Option<ExifInfo> {
         info.focal_length = Some(field.display_value().to_string());
     }
     if exif_data.get_field(Tag::GPSLatitude, In::PRIMARY).is_some()
-        || exif_data.get_field(Tag::GPSInfoIFDPointer, In::PRIMARY).is_some()
-        || exif_data.get_field(Tag::GPSVersionID, In::PRIMARY).is_some()
+        || exif_data
+            .get_field(Tag::GPSInfoIFDPointer, In::PRIMARY)
+            .is_some()
+        || exif_data
+            .get_field(Tag::GPSVersionID, In::PRIMARY)
+            .is_some()
     {
         info.gps_present = true;
     }
@@ -436,14 +492,11 @@ pub fn is_png(bytes: &[u8]) -> bool {
 }
 
 pub fn is_tiff(bytes: &[u8]) -> bool {
-    bytes.len() >= 4
-        && matches!(&bytes[..4], b"II\x2A\x00" | b"MM\x00\x2A")
+    bytes.len() >= 4 && matches!(&bytes[..4], b"II\x2A\x00" | b"MM\x00\x2A")
 }
 
 pub fn is_webp(bytes: &[u8]) -> bool {
-    bytes.len() >= 12
-        && &bytes[0..4] == b"RIFF"
-        && &bytes[8..12] == b"WEBP"
+    bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP"
 }
 
 // ── HEIC, JPG Helpers ──────────────────────────────────────────────────────────────
@@ -462,11 +515,55 @@ fn rewrite_heic_exif_without_gps(bytes: &[u8]) -> Result<Vec<u8>> {
 pub fn extract_heic_exif_raw(bytes: &[u8]) -> Option<Vec<u8>> {
     // First attempt: locate the Exif box
     if let Some((start, len)) = find_heic_exif_box(bytes) {
-        return Some(bytes[start..start+len].to_vec());
+        return Some(bytes[start..start + len].to_vec());
     }
     // Fallback: raw TIFF header scan
     let tiff_offset = find_tiff_header(bytes)?;
     Some(bytes[tiff_offset..].to_vec())
+}
+
+/// Use libheif's native API to extract EXIF data, bypassing container parsing entirely.
+fn extract_heic_exif_native(bytes: &[u8]) -> Option<Vec<u8>> {
+    let ctx = HeifContext::read_from_bytes(bytes).ok()?;
+    let handle = ctx.primary_image_handle().ok()?;
+
+    // `metadata_block_ids` accepts a `b"Exif"` byte array directly.
+    let mut ids: Vec<ItemId> = vec![0; 32]; // Buffer for IDs
+    let count = handle.metadata_block_ids(&mut ids, b"Exif");
+
+    for &id in ids.iter().take(count) {
+        // `metadata` returns `Result<Vec<u8>, HeifError>`.
+        if let Ok(data) = handle.metadata(id) {
+            if let Some(tiff) = tiff_from_heic_metadata(&data) {
+                return Some(tiff.to_vec());
+            }
+        }
+    }
+    None
+}
+
+/// Return the TIFF payload from a libheif EXIF metadata block.
+///
+/// HEIF stores EXIF as a four-byte big-endian offset followed by the TIFF data.
+/// The offset may be nonzero: `IMG_0496.HEIC` uses six bytes to skip an
+/// `Exif\0\0` prefix. Treating this block as raw TIFF drops valid metadata
+/// because the TIFF header does not necessarily begin at byte zero.
+pub fn tiff_from_heic_metadata(data: &[u8]) -> Option<&[u8]> {
+    if data.starts_with(b"Exif\0\0") {
+        return data.get(6..).filter(|tiff| is_tiff_header(tiff));
+    }
+
+    if is_tiff_header(data) {
+        return Some(data);
+    }
+
+    let offset = u32::from_be_bytes(data.get(..4)?.try_into().ok()?) as usize;
+    let tiff_start = 4usize.checked_add(offset)?;
+    data.get(tiff_start..).filter(|tiff| is_tiff_header(tiff))
+}
+
+fn is_tiff_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"II\x2A\x00") || bytes.starts_with(b"MM\x00\x2A")
 }
 
 /// Replace the TIFF payload inside the 'Exif' box, update box size, and zero padding.
@@ -478,28 +575,29 @@ pub fn replace_heic_exif_payload(bytes: &[u8], new_tiff: &[u8]) -> anyhow::Resul
 
         // Copy new TIFF
         if payload_start + new_len <= out.len() {
-            out[payload_start..payload_start+new_len].copy_from_slice(new_tiff);
+            out[payload_start..payload_start + new_len].copy_from_slice(new_tiff);
         }
         // Zero leftover bytes in the box
         let end_of_box = payload_start + payload_len;
         if end_of_box <= out.len() {
-            out[payload_start+new_len..end_of_box].fill(0);
+            out[payload_start + new_len..end_of_box].fill(0);
         }
         // Update box size (header is 8 bytes + 4 fullbox flags)
         let box_size_pos = payload_start - 8 - 4;
         let new_box_size = 8 + 4 + new_len;
         if box_size_pos + 4 <= out.len() {
-            out[box_size_pos..box_size_pos+4].copy_from_slice(&(new_box_size as u32).to_be_bytes());
+            out[box_size_pos..box_size_pos + 4]
+                .copy_from_slice(&(new_box_size as u32).to_be_bytes());
         }
         return Ok(out);
     }
 
     // Fallback: raw offset replacement (no size update)
-    let tiff_offset = find_tiff_header(bytes)
-        .ok_or_else(|| anyhow::anyhow!("No Exif or TIFF header found"))?;
+    let tiff_offset =
+        find_tiff_header(bytes).ok_or_else(|| anyhow::anyhow!("No Exif or TIFF header found"))?;
     let mut out = bytes.to_vec();
     if tiff_offset + new_tiff.len() <= out.len() {
-        out[tiff_offset..tiff_offset+new_tiff.len()].copy_from_slice(new_tiff);
+        out[tiff_offset..tiff_offset + new_tiff.len()].copy_from_slice(new_tiff);
     }
     Ok(out)
 }
@@ -513,8 +611,10 @@ fn find_heic_exif_box(bytes: &[u8]) -> Option<(usize, usize)> {
     let mut pos = meta_start + 4;
 
     while pos + 8 <= meta_end {
-        let box_size = u32::from_be_bytes([bytes[pos], bytes[pos+1], bytes[pos+2], bytes[pos+3]]) as usize;
-        let box_type = &bytes[pos+4..pos+8];
+        let box_size =
+            u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+                as usize;
+        let box_type = &bytes[pos + 4..pos + 8];
         let header_len = 8;
 
         if box_size < header_len || pos + box_size > meta_end {
@@ -537,14 +637,24 @@ fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
     let mut pos = 0;
 
     while pos + 8 <= bytes.len() {
-        let mut box_size = u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]]) as usize;
+        let mut box_size =
+            u32::from_be_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+                as usize;
         let box_type = &bytes[pos + 4..pos + 8];
 
         let header_len = if box_size == 1 {
-            if pos + 16 > bytes.len() { break; }
+            if pos + 16 > bytes.len() {
+                break;
+            }
             box_size = u64::from_be_bytes([
-                bytes[pos + 8],  bytes[pos + 9],  bytes[pos + 10], bytes[pos + 11],
-                bytes[pos + 12], bytes[pos + 13], bytes[pos + 14], bytes[pos + 15],
+                bytes[pos + 8],
+                bytes[pos + 9],
+                bytes[pos + 10],
+                bytes[pos + 11],
+                bytes[pos + 12],
+                bytes[pos + 13],
+                bytes[pos + 14],
+                bytes[pos + 15],
             ]) as usize;
             16
         } else if box_size == 0 {
@@ -553,7 +663,11 @@ fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
             8
         };
 
-        if box_size < header_len || pos.checked_add(box_size).map_or(true, |end| end > bytes.len()) {
+        if box_size < header_len
+            || pos
+                .checked_add(box_size)
+                .map_or(true, |end| end > bytes.len())
+        {
             break;
         }
 
@@ -606,8 +720,8 @@ pub fn strip_all_heic_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     if let Some((meta_start, meta_end)) = find_heic_meta_bounds(&out) {
         let meta_slice = &mut out[meta_start..meta_end];
         for i in 0..meta_slice.len().saturating_sub(4) {
-            if &meta_slice[i..i+4] == b"Exif" {
-                meta_slice[i..i+4].copy_from_slice(b"free");
+            if &meta_slice[i..i + 4] == b"Exif" {
+                meta_slice[i..i + 4].copy_from_slice(b"free");
             }
         }
     }
@@ -675,10 +789,7 @@ fn rewrite_png_exif_without_gps(png: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Walk PNG chunks, optionally skipping entire chunks.
-fn rewrite_png_chunks(
-    png: &[u8],
-    keep_chunk: impl Fn(&[u8; 4], &[u8]) -> bool,
-) -> Vec<u8> {
+fn rewrite_png_chunks(png: &[u8], keep_chunk: impl Fn(&[u8; 4], &[u8]) -> bool) -> Vec<u8> {
     if !is_png(png) {
         return png.to_vec();
     }
@@ -689,12 +800,7 @@ fn rewrite_png_chunks(
     let mut i = 8;
 
     while i + 12 <= png.len() {
-        let len = u32::from_be_bytes([
-            png[i],
-            png[i + 1],
-            png[i + 2],
-            png[i + 3],
-        ]) as usize;
+        let len = u32::from_be_bytes([png[i], png[i + 1], png[i + 2], png[i + 3]]) as usize;
 
         let chunk_end = match i.checked_add(12 + len) {
             Some(end) if end <= png.len() => end,
@@ -722,10 +828,7 @@ fn rewrite_png_chunks(
     out
 }
 
-fn foreach_png_chunk_mut(
-    png: &mut [u8],
-    mut f: impl FnMut(&[u8; 4], &mut [u8]),
-) -> Result<()> {
+fn foreach_png_chunk_mut(png: &mut [u8], mut f: impl FnMut(&[u8; 4], &mut [u8])) -> Result<()> {
     if !png.starts_with(&PNG_SIG) {
         return Ok(());
     }
@@ -802,12 +905,8 @@ fn rebuild_webp_chunks(
 
     while pos + 8 <= end {
         let fourcc: [u8; 4] = webp[pos..pos + 4].try_into().ok()?;
-        let size = u32::from_le_bytes([
-            webp[pos + 4],
-            webp[pos + 5],
-            webp[pos + 6],
-            webp[pos + 7],
-        ]) as usize;
+        let size = u32::from_le_bytes([webp[pos + 4], webp[pos + 5], webp[pos + 6], webp[pos + 7]])
+            as usize;
         let payload_start = pos + 8;
         let payload_end = payload_start + size;
         if payload_end > webp.len() {
@@ -860,9 +959,7 @@ fn extract_jpeg_exif_tiff(bytes: &[u8]) -> Option<&[u8]> {
         if marker == 0xE1 && len >= 8 {
             let start = i + 2;
 
-            if start + 6 <= bytes.len()
-                && &bytes[start..start + 6] == b"Exif\0\0"
-            {
+            if start + 6 <= bytes.len() && &bytes[start..start + 6] == b"Exif\0\0" {
                 return Some(&bytes[start + 6..i + len]);
             }
         }
