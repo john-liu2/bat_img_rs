@@ -1,6 +1,6 @@
 [package]
 name = "bat_img_rs"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 authors = ["John Liu"]
 description = "A fast, multithreaded batch image processing CLI tool"
@@ -18,6 +18,9 @@ path = "src/lib.rs"
 [dependencies]
 # CLI argument parsing
 clap = { version = "4", features = ["derive", "color"] }
+
+# Format SystemTime beautifully
+chrono = "0.4"
 
 # Image processing (resize, border, format conversion)
 #image = { version = "0.25", features = ["jpeg", "png", "webp", "tiff", "gif"] }

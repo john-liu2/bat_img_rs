@@ -16,7 +16,7 @@ mod tests {
     use bat_img_rs::heic;
 
     use super::common::{png_with_exif_chunk, webp_with_exif_chunk, build_tiff_le,
-        build_tiff_be, jpeg_with_exif, build_tiff_with_gps
+        build_tiff_be, jpeg_with_exif, build_tiff_with_gps, create_test_heic
     };
 
     #[test]
@@ -45,18 +45,15 @@ mod tests {
 
     #[test]
     fn image_details_heic() {
-        use bat_img_rs::heic;
-        use libheif_rs::CompressionFormat;
-
         let dir = tempdir().unwrap();
-        let path = dir.path().join("test.heic");
-        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([0, 0, 255])));
-        if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_ok() {
-            let raw = std::fs::read(&path).unwrap();
-            let details = get_image_details(image::ColorType::Rgb8, "HEIC", &raw);
-            assert_eq!(details.colorspace, "YCbCr");
-            assert!(details.chroma_format.is_some()); // should be 4:2:0 or similar
-        }
+        let Some(path) = create_test_heic(&dir, "test.heic") else {
+            println!("Skipping test: libheif encoding failed.");
+            return;
+        };
+        let raw = std::fs::read(&path).unwrap();
+        let details = get_image_details(image::ColorType::Rgb8, "HEIC", &raw);
+        assert_eq!(details.colorspace, "YCbCr");
+        assert!(details.chroma_format.is_some()); // should be 4:2:0 or similar
     }
 
     // ── Helper to synthesize minimal HEIC structure ─────────────────────────────

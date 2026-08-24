@@ -1,9 +1,39 @@
 // Test helpers in tests/common/mod.rs
 
 use image::{DynamicImage, RgbImage};
-use tempfile::TempDir;
 use std::path::PathBuf;
+use tempfile::TempDir;
+use libheif_rs::CompressionFormat;
 use exif_lib as exif;
+use bat_img_rs::heic;
+
+#[allow(dead_code)]
+pub fn create_test_heic(dir: &TempDir, name: &str) -> Option<PathBuf> {
+    let path = dir.path().join(name);
+    let img = image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
+    if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
+        // Skip if encoding fails (libheif not installed)
+        return None;
+    }
+    Some(path)
+}
+
+// Used in test_cli.rs, test_info.rs
+#[allow(dead_code)]
+pub fn create_test_jpeg(dir: &TempDir, name: &str) -> PathBuf {
+    let path = dir.path().join(name);
+    let img = RgbImage::from_pixel(100, 100, image::Rgb([255, 0, 0]));
+    img.save(&path).unwrap();
+    path
+}
+
+#[allow(dead_code)]
+pub fn create_test_png(dir: &TempDir, name: &str) -> PathBuf {
+    let path = dir.path().join(name);
+    let img = RgbImage::from_pixel(100, 100, image::Rgb([0, 255, 0]));
+    img.save(&path).unwrap();
+    path
+}
 
 // ── TIFF / EXIF byte-building helpers ─────────────────────────────────────
 
@@ -78,7 +108,8 @@ pub fn build_tiff_le(entries: &[(u16, u16, u16)]) -> Vec<u8> {
 }
 
 /// Build a minimal big-endian TIFF block with a single orientation entry.
-#[allow(dead_code)]pub fn build_tiff_be(orientation: u16) -> Vec<u8> {
+#[allow(dead_code)]
+pub fn build_tiff_be(orientation: u16) -> Vec<u8> {
     let mut buf: Vec<u8> = vec![
         b'M', b'M', // big-endian
         0x00, 0x2A, // magic
