@@ -18,12 +18,7 @@ fn extract_heic_exif(raw: Vec<u8>) -> Option<Vec<u8>> {
         return None;
     }
 
-    let offset = u32::from_be_bytes([
-        raw[0],
-        raw[1],
-        raw[2],
-        raw[3],
-    ]) as usize;
+    let offset = u32::from_be_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize;
 
     let payload = if offset + 4 <= raw.len() {
         &raw[4 + offset..]
@@ -31,7 +26,9 @@ fn extract_heic_exif(raw: Vec<u8>) -> Option<Vec<u8>> {
         &raw[4..]
     };
 
-    if payload.len() >= 4 && (payload.starts_with(b"II\x2A\x00") || payload.starts_with(b"MM\x00\x2A")) {
+    if payload.len() >= 4
+        && (payload.starts_with(b"II\x2A\x00") || payload.starts_with(b"MM\x00\x2A"))
+    {
         Some(payload.to_vec())
     } else {
         None

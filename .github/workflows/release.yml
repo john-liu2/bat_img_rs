@@ -126,7 +126,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install build tools
-        run: python3 -m pip install hatchling twine build
+        run: python3 -m pip install --upgrade pip hatchling twine build
 
       - name: Download all binaries
         uses: actions/download-artifact@v4

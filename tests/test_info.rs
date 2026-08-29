@@ -2,10 +2,10 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-    use tempfile::{tempdir};
     use super::common::{create_test_heic, create_test_jpeg, create_test_png};
     use bat_img_rs::info::format_info;
+    use std::path::Path;
+    use tempfile::tempdir;
 
     #[test]
     fn jpeg_info_contains_key_fields() {
@@ -19,7 +19,7 @@ mod tests {
         // Case‑insensitive check for "jpeg"
         assert!(info.to_lowercase().contains("jpeg"));
         assert!(info.contains("Dimensions"));
-        assert!(info.contains("100x100"));
+        assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Colorspace"));
@@ -38,7 +38,7 @@ mod tests {
         // Case‑insensitive check for "png"
         assert!(info.to_lowercase().contains("png"));
         assert!(info.contains("Dimensions"));
-        assert!(info.contains("100x100"));
+        assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Colorspace"));
@@ -57,9 +57,9 @@ mod tests {
         assert!(info.contains("File Size"));
         assert!(info.contains("Last Modified"));
         assert!(info.contains("Format"));
-        assert!(info.contains("HEIC"));
+        assert!(info.contains("HEIF"));
         assert!(info.contains("Dimensions"));
-        assert!(info.contains("100x100"));
+        assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Colorspace"));

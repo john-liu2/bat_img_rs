@@ -1,11 +1,11 @@
-use anyhow::{Context, Result};
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::fs;
 use crate::exif;
 use crate::heic;
 use crate::pipeline::Pipeline;
+use anyhow::{Context, Result};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba, RgbaImage};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct ProcessingContext {
     pub input_path: PathBuf,
@@ -28,7 +28,9 @@ impl ProcessingContext {
             raw_bytes
         };
 
-        let out_dir = target_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let out_dir = target_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
         let mut temp_file = tempfile::NamedTempFile::new_in(out_dir)?;
         std::io::Write::write_all(&mut temp_file, &cleaned_bytes)?;
         temp_file
@@ -54,8 +56,9 @@ impl ProcessingContext {
             && p.output_format.is_none();
 
         if is_metadata_only {
-            let raw_bytes = fs::read(&self.input_path)
-                .with_context(|| format!("Failed to read input file: {}", self.input_path.display()))?;
+            let raw_bytes = fs::read(&self.input_path).with_context(|| {
+                format!("Failed to read input file: {}", self.input_path.display())
+            })?;
 
             // Fast path for unoriented photos; fall back to full decoding if orientation needs pixel rotation
             let has_orientation = exif::read_orientation(&raw_bytes).map_or(false, |o| o != 1);
@@ -187,7 +190,12 @@ impl ProcessingContext {
         }
 
         // ── Encode & save ────────────────────────────────────────────────────
-        self.save_image(&img, &output_path, heic_meta.as_ref(), processed_exif.as_deref())?;
+        self.save_image(
+            &img,
+            &output_path,
+            heic_meta.as_ref(),
+            processed_exif.as_deref(),
+        )?;
 
         // Re-encoding for non-HEIC
         if !is_heic && let Some(ref exif_bytes) = processed_exif {
@@ -278,9 +286,7 @@ impl ProcessingContext {
         let (write_path, is_temp) = if p.in_place {
             let tmp = path.with_file_name(format!(
                 "{}.{}.bat_img_tmp",
-                path.file_stem()
-                    .unwrap()
-                    .to_string_lossy(),
+                path.file_stem().unwrap().to_string_lossy(),
                 ext
             ));
             (tmp, true)
@@ -288,7 +294,8 @@ impl ProcessingContext {
             (path.clone(), false)
         };
 
-        let encode_result = self.encode_to(&write_path, img, &ext, quality_or_default, heic_meta, exif);
+        let encode_result =
+            self.encode_to(&write_path, img, &ext, quality_or_default, heic_meta, exif);
 
         if let Err(e) = encode_result {
             // Clean up the temp file if encoding failed
@@ -349,7 +356,7 @@ impl ProcessingContext {
             }
             "webp" => {
                 img.save_with_format(path, image::ImageFormat::WebP)
-                .with_context(|| format!("WebP save failed for {}", path.display()))?;
+                    .with_context(|| format!("WebP save failed for {}", path.display()))?;
             }
             "png" => {
                 img.save_with_format(path, image::ImageFormat::Png)

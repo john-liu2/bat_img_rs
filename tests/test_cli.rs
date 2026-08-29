@@ -2,10 +2,10 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use std::process::Command;
-    use std::path::PathBuf;
-    use tempfile::{tempdir};
     use super::common::{create_test_heic, create_test_jpeg, create_test_png};
+    use std::path::PathBuf;
+    use std::process::Command;
+    use tempfile::tempdir;
 
     fn run_info(path: &PathBuf) -> String {
         let output = Command::new("cargo")
@@ -34,7 +34,7 @@ mod tests {
         let path = create_test_jpeg(&dir, "test.jpg");
         let stdout = run_info(&path);
 
-        assert!(stdout.contains("Dimensions") && stdout.contains("100x100"));
+        assert!(stdout.contains("Dimensions") && stdout.contains("100 x 100"));
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Colorspace") && stdout.contains("YCbCr"));
@@ -47,7 +47,7 @@ mod tests {
         let path = create_test_png(&dir, "test.png");
         let stdout = run_info(&path);
 
-        assert!(stdout.contains("Dimensions") && stdout.contains("100x100"));
+        assert!(stdout.contains("Dimensions") && stdout.contains("100 x 100"));
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Colorspace") && stdout.contains("RGB")); // PNG decoded as RGB
@@ -63,7 +63,7 @@ mod tests {
         };
         let stdout = run_info(&path);
 
-        assert!(stdout.contains("Dimensions") && stdout.contains("100x100"));
+        assert!(stdout.contains("Dimensions") && stdout.contains("100 x 100"));
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Colorspace") && stdout.contains("YCbCr"));

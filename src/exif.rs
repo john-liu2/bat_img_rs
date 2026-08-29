@@ -12,7 +12,7 @@ use std::path::Path;
 
 // Format signatures
 const SOI: [u8; 2] = [0xFF, 0xD8]; // JPEG Start of Image
-const EXIF_HEADER: &[u8] = b"Exif\0\0";  // 6-byte byte array
+const EXIF_HEADER: &[u8] = b"Exif\0\0"; // 6-byte byte array
 const PNG_SIG: [u8; 8] = *b"\x89PNG\r\n\x1a\n";
 
 #[derive(Debug, Default)]

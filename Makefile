@@ -10,7 +10,6 @@
 #   make install-local # install into current venv and smoke-test
 #   make testpypi      # upload to TestPyPI
 #   make test-testpypi # install from TestPyPI and verify
-#   make publish       # upload to real PyPI (after confirming on TestPyPI)
 
 PYTHON   := python3
 PIP      := pip3
@@ -19,9 +18,16 @@ PKG_DIR  := python
 BINARY_NAME := bat_img_rs
 BIN_NAME := bat_img
 
-.PHONY: dist check install-local testpypi test-testpypi publish clean help
+.PHONY: test dist check install-local testpypi test-testpypi clean help
 
 # ── Build ─────────────────────────────────────────────────────────────────────
+test: clean
+	@echo "==> Format Code"
+	cargo fmt
+	@echo "==> Lint Code"
+	cargo clippy
+	@echo "==> Build Debug and Run Tests"
+	cargo test
 
 ## Build a wheel (current platform) + sdist
 dist: clean
@@ -84,15 +90,6 @@ test-testpypi:
 	$(BIN_NAME) --version
 	$(BIN_NAME) --help
 
-# ── Real PyPI ─────────────────────────────────────────────────────────────────
-
-## Upload to real PyPI — confirm you tested on TestPyPI first!
-publish: check
-	@echo "==> Uploading to PyPI …"
-	$(PYTHON) -m twine upload $(PKG_DIR)/$(DIST_DIR)/*
-	@echo ""
-	@echo "Package URL: https://pypi.org/project/bat-img/"
-
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
 ## Remove build artifacts
@@ -107,6 +104,6 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'
 	@echo ""
 	@echo "Typical flow:"
+	@echo "  make test                    	 # clean up & run all tests"
 	@echo "  make dist check install-local   # build + validate locally"
 	@echo "  make testpypi test-testpypi     # test on TestPyPI"
-	@echo "  make publish                    # release to real PyPI"

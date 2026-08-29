@@ -1,8 +1,8 @@
 /// Test bat_img_rs::pipeline
 #[cfg(test)]
 mod tests {
-    use bat_img_rs::processor::resolve_dimensions;
     use bat_img_rs::pipeline::parse_color;
+    use bat_img_rs::processor::resolve_dimensions;
     use image::Rgba;
 
     // ── --info CLI and Pipeline tests ─────────────────────────────────────────
@@ -11,7 +11,8 @@ mod tests {
         use bat_img_rs::cli::Args;
         use clap::Parser;
 
-        let args = Args::try_parse_from(["bat_img_rs", "-i", "tests/fixtures/src.heic", "--info"]).unwrap();
+        let args = Args::try_parse_from(["bat_img_rs", "-i", "tests/fixtures/src.heic", "--info"])
+            .unwrap();
         assert!(args.info);
         assert_eq!(args.input, vec!["tests/fixtures/src.heic"]);
     }
