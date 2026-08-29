@@ -1,18 +1,17 @@
 /// Test bat_img_rs::processor
-
 mod common;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{solid_rgb, save_jpeg, save_png};
+    use super::common::{save_jpeg, save_png, solid_rgb};
 
+    use bat_img_rs::exif::{extract_exif_tiff, read_orientation, strip_gps_metadata};
     use bat_img_rs::pipeline::{Pipeline, ResizeSpec};
     use bat_img_rs::processor::ProcessingContext;
     use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;
-    use bat_img_rs::exif::{extract_exif_tiff, read_orientation, strip_gps_metadata};
 
     /// Build a minimal Pipeline with everything disabled, pointing output at `out_dir`.
     fn base_pipeline(out_dir: PathBuf) -> Pipeline {
@@ -113,7 +112,10 @@ mod tests {
         p.dry_run = true;
 
         let output = run(src, p);
-        assert!(!output.exists(), "Fast path dry-run must not create output file");
+        assert!(
+            !output.exists(),
+            "Fast path dry-run must not create output file"
+        );
     }
 
     // ── Resize ────────────────────────────────────────────────────────────────
@@ -532,11 +534,7 @@ mod tests {
 
         // Landscape source (200×100). EXIF orientation 6 = rotate 90° CW for display.
         let src = save_jpeg(&solid_rgb(200, 100, 255, 0, 0), &tmp, "photo.jpg");
-        let with_exif = inject_exif_orientation(
-            &std::fs::read(&src).unwrap(),
-            6,
-            Some(0x1234),
-        );
+        let with_exif = inject_exif_orientation(&std::fs::read(&src).unwrap(), 6, Some(0x1234));
         std::fs::write(&src, &with_exif).unwrap();
 
         let mut p = base_pipeline(out.path().to_path_buf());

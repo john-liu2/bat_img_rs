@@ -1,5 +1,4 @@
 /// Test bat_img_rs::heic
-
 mod common;
 
 #[cfg(test)]
@@ -7,18 +6,15 @@ mod common;
 mod tests {
     use super::common::build_tiff_with_gps;
 
-    use bat_img_rs::heic;
     use bat_img_rs::exif::{
-        extract_heic_exif_raw,
-        extract_exif_tiff,
-        strip_gps_from_tiff,
+        extract_exif_tiff, extract_heic_exif_raw, strip_all_metadata, strip_gps_from_tiff,
         strip_gps_metadata,
-        strip_all_metadata
     };
+    use bat_img_rs::heic;
     use image::{DynamicImage, RgbImage};
-    use tempfile::tempdir;
     use libheif_rs::CompressionFormat;
     use std::path::Path;
+    use tempfile::tempdir;
 
     const HEIC_FIXTURE: &str = "tests/fixtures/src.heic";
 
@@ -29,17 +25,13 @@ mod tests {
 
         let expected_w = 16;
         let expected_h = 12;
-        let img = DynamicImage::ImageRgb8(
-            RgbImage::from_pixel(expected_w, expected_h, image::Rgb([100, 150, 200]))
-        );
-        heic::encode(
-            &img,
-            &test_file,
-            CompressionFormat::Hevc,
-            Some(80),
-            None,
-        )
-        .expect("Failed to encode HEIC for dimension test");
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(
+            expected_w,
+            expected_h,
+            image::Rgb([100, 150, 200]),
+        ));
+        heic::encode(&img, &test_file, CompressionFormat::Hevc, Some(80), None)
+            .expect("Failed to encode HEIC for dimension test");
 
         let (decoded_img, _, _) = heic::decode(&test_file).expect("Failed to decode HEIC");
         assert_eq!(decoded_img.width(), expected_w);
@@ -59,14 +51,18 @@ mod tests {
                 assert!(img.width() > 0, "Width should be greater than 0");
                 assert!(img.height() > 0, "Height should be greater than 0");
                 assert!(
-                    matches!(img.color(), image::ColorType::Rgb8 | image::ColorType::Rgba8),
+                    matches!(
+                        img.color(),
+                        image::ColorType::Rgb8 | image::ColorType::Rgba8
+                    ),
                     "Expected Rgb8 or Rgba8 color type"
                 );
             }
             Err(err) => {
                 let full_err = format!("{:#}", err);
                 assert!(
-                    full_err.contains("SecurityLimitExceeded") || full_err.contains("Security limit exceeded"),
+                    full_err.contains("SecurityLimitExceeded")
+                        || full_err.contains("Security limit exceeded"),
                     "Unexpected decode error for HEIC fixture: {full_err}"
                 );
             }
@@ -83,7 +79,10 @@ mod tests {
 
         assert!(is_heic(path), "HEIC extension should be recognized");
         if heic_file.exists() {
-            assert!(is_heic(heic_file), "Fixture HEIC file path must be recognized as HEIC");
+            assert!(
+                is_heic(heic_file),
+                "Fixture HEIC file path must be recognized as HEIC"
+            );
         }
     }
 
@@ -111,7 +110,8 @@ mod tests {
         }
 
         let raw_bytes = std::fs::read(fixture).unwrap();
-        let stripped_bytes = strip_gps_metadata(&raw_bytes).expect("GPS strip failed on HEIC fixture");
+        let stripped_bytes =
+            strip_gps_metadata(&raw_bytes).expect("GPS strip failed on HEIC fixture");
 
         // Fast path preserves exact file byte size
         assert_eq!(raw_bytes.len(), stripped_bytes.len());
@@ -126,7 +126,8 @@ mod tests {
         }
 
         let raw_bytes = std::fs::read(fixture).unwrap();
-        let stripped_bytes = strip_all_metadata(&raw_bytes).expect("Strip all failed on HEIC fixture");
+        let stripped_bytes =
+            strip_all_metadata(&raw_bytes).expect("Strip all failed on HEIC fixture");
 
         assert_eq!(raw_bytes.len(), stripped_bytes.len());
         assert!(heic::is_heic_bytes(&stripped_bytes));
@@ -160,19 +161,10 @@ mod tests {
         let input = dir.path().join("input.heic");
         let stripped_path = dir.path().join("gps_stripped.heic");
 
-        let img = DynamicImage::ImageRgb8(
-            RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30]))
-        );
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
         let tiff = build_tiff_with_gps(0x1234);
 
-        heic::encode(
-            &img,
-            &input,
-            CompressionFormat::Hevc,
-            Some(80),
-            Some(&tiff),
-        )
-        .unwrap();
+        heic::encode(&img, &input, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
 
         let original = std::fs::read(&input).unwrap();
         let stripped = strip_gps_metadata(&original).unwrap();
@@ -199,19 +191,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("with_exif.heic");
 
-        let img = DynamicImage::ImageRgb8(
-            RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30]))
-        );
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
         let tiff = build_tiff_with_gps(0x1234);
 
-        heic::encode(
-            &img,
-            &input,
-            CompressionFormat::Hevc,
-            Some(80),
-            Some(&tiff),
-        )
-        .unwrap();
+        heic::encode(&img, &input, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
 
         let original = std::fs::read(&input).unwrap();
 
@@ -223,10 +206,7 @@ mod tests {
 
         let (_, gps_exif, _) = heic::decode(&gps_path).unwrap();
 
-        assert!(
-            gps_exif.is_some(),
-            "strip_gps must preserve non-GPS EXIF"
-        );
+        assert!(gps_exif.is_some(), "strip_gps must preserve non-GPS EXIF");
 
         // strip ALL
         let stripped_all = strip_all_metadata(&original).unwrap();
@@ -236,9 +216,6 @@ mod tests {
 
         let (_, all_exif, _) = heic::decode(&all_path).unwrap();
 
-        assert!(
-            all_exif.is_none(),
-            "strip_all must remove EXIF"
-        );
+        assert!(all_exif.is_none(), "strip_all must remove EXIF");
     }
 }

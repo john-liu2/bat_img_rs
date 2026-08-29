@@ -42,7 +42,7 @@ pub fn format_info(file: &Path) -> String {
     // Format
     let is_heic_file = heic::is_heic(file);
     let format_str = if is_heic_file {
-        "HEIC".to_string()
+        "HEIF".to_string()
     } else {
         image::ImageFormat::from_path(file)
             .map(|f| format!("{:?}", f))
@@ -51,7 +51,7 @@ pub fn format_info(file: &Path) -> String {
     out.push_str(&format!(
         "  {:<width$} : {}\n",
         "Format".bold(),
-        format_str.blue()
+        format_str.to_uppercase().blue()
     ));
 
     // Decode to get pixel details
@@ -74,11 +74,7 @@ pub fn format_info(file: &Path) -> String {
         } else {
             (
                 None,
-                exif::get_image_details(
-                    ColorType::Rgb8,
-                    &format_str.to_uppercase(),
-                    &raw_bytes,
-                ),
+                exif::get_image_details(ColorType::Rgb8, &format_str.to_uppercase(), &raw_bytes),
             )
         }
     };
@@ -87,7 +83,7 @@ pub fn format_info(file: &Path) -> String {
         let (w, h) = (img.width(), img.height());
         let megapixels = (w as f64 * h as f64) / 1_000_000.0;
         out.push_str(&format!(
-            "  {:<width$} : {}x{} ({:.1} MP)\n",
+            "  {:<width$} : {} x {} ({:.1} MP)\n",
             "Dimensions".bold(),
             w,
             h,
@@ -119,6 +115,7 @@ pub fn format_info(file: &Path) -> String {
     }
 
     // EXIF metadata
+    let wid2 = TAB_WIDTH - 1;
     out.push_str("\n  ");
     out.push_str(&"[ EXIF Metadata ]".bold().underline().dimmed().to_string());
     out.push('\n');
@@ -126,24 +123,25 @@ pub fn format_info(file: &Path) -> String {
         let mut found_any = false;
 
         if let Some(ref make) = exif_data.make {
-            out.push_str(&format!("    {:<width$} : {}\n", "Make", make));
+            out.push_str(&format!("    {:<wid2$} : {}\n", "Make", make));
             found_any = true;
         }
         if let Some(ref model) = exif_data.model {
-            out.push_str(&format!("    {:<width$} : {}\n", "Model", model));
+            out.push_str(&format!("    {:<wid2$} : {}\n", "Model", model));
             found_any = true;
         }
         if let Some(ref date) = exif_data.date_time {
-            out.push_str(&format!("    {:<width$} : {}\n", "Date/Time", date));
+            // Convert strings like "2025-12-20 20:02:28" to "2025-12-20 20:02"
+            out.push_str(&format!("    {:<wid2$} : {}\n", "Date/Time", &date[..16]));
             found_any = true;
         }
         if let Some(ref iso) = exif_data.iso {
-            out.push_str(&format!("    {:<width$} : ISO {}\n", "ISO Speed", iso));
+            out.push_str(&format!("    {:<wid2$} : ISO {}\n", "ISO Speed", iso));
             found_any = true;
         }
         if let Some(ref exp) = exif_data.exposure {
             let clean_exp = exp.trim().trim_end_matches('s').trim();
-            out.push_str(&format!("    {:<width$} : {} s\n", "Exposure", clean_exp));
+            out.push_str(&format!("    {:<wid2$} : {} s\n", "Exposure", clean_exp));
             found_any = true;
         }
         if let Some(ref f) = exif_data.f_number {
@@ -160,7 +158,7 @@ pub fn format_info(file: &Path) -> String {
             } else {
                 clean_f.to_string()
             };
-            out.push_str(&format!("    {:<width$} : f/{}\n", "Aperture", formatted_f));
+            out.push_str(&format!("    {:<wid2$} : f/{}\n", "Aperture", formatted_f));
             found_any = true;
         }
         if let Some(ref fl) = exif_data.focal_length {
@@ -171,17 +169,24 @@ pub fn format_info(file: &Path) -> String {
                 format!("{} mm", clean_fl)
             };
             out.push_str(&format!(
-                "    {:<width$} : {}\n",
-                "Focal Length",
-                formatted_fl
+                "    {:<wid2$} : {}\n",
+                "Focal Length", formatted_fl
             ));
             found_any = true;
         }
-        let has_gps = if exif_data.gps_present {"Present"} else {"None"}.to_string();
-        out.push_str(&format!("    {:<width$} : {}\n", "GPS Data".red(), has_gps));
+        let has_gps = if exif_data.gps_present {
+            "Present"
+        } else {
+            "None"
+        }
+        .to_string();
+        out.push_str(&format!("    {:<wid2$} : {}\n", "GPS Data".red(), has_gps));
 
         if !found_any {
-            out.push_str(&format!("    {}\n", "No standard camera tags found in EXIF."));
+            out.push_str(&format!(
+                "    {}\n",
+                "No standard camera tags found in EXIF."
+            ));
         }
     } else {
         out.push_str(&format!("    {}\n", "None (or unreadable EXIF header)"));

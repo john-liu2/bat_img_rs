@@ -7,9 +7,9 @@ mod common;
 #[cfg(test)]
 mod tests {
     use bat_img_rs::exif::{
-        extract_exif_tiff, extract_heic_exif_raw, get_image_details, is_png, is_tiff, read_exif,
-        read_orientation, replace_heic_exif_payload, rewrite_exif_metadata, strip_all_metadata,
-        strip_gps_metadata, parse_exif_bytes, tiff_from_heic_metadata
+        extract_exif_tiff, extract_heic_exif_raw, get_image_details, is_png, is_tiff,
+        parse_exif_bytes, read_exif, read_orientation, replace_heic_exif_payload,
+        rewrite_exif_metadata, strip_all_metadata, strip_gps_metadata, tiff_from_heic_metadata,
     };
     use bat_img_rs::heic;
     use image::{DynamicImage, RgbImage};
@@ -21,7 +21,7 @@ mod tests {
         png_with_exif_chunk, webp_with_exif_chunk,
     };
 
-    // Temp local manual debug 
+    // Temp local manual debug
     // #[test]
     // fn debug_read_exif_manual() {
     //     // Get home directory from environment variable

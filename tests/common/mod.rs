@@ -1,16 +1,17 @@
 // Test helpers in tests/common/mod.rs
 
+use bat_img_rs::heic;
+use exif_lib as exif;
 use image::{DynamicImage, RgbImage};
+use libheif_rs::CompressionFormat;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use libheif_rs::CompressionFormat;
-use exif_lib as exif;
-use bat_img_rs::heic;
 
 #[allow(dead_code)]
 pub fn create_test_heic(dir: &TempDir, name: &str) -> Option<PathBuf> {
     let path = dir.path().join(name);
-    let img = image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
+    let img =
+        image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
     if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
         // Skip if encoding fails (libheif not installed)
         return None;

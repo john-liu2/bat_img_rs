@@ -77,7 +77,7 @@ fn main() -> Result<()> {
             .par_iter()
             .map(|file| {
                 let info = info::format_info(file);
-                pb.inc(1);  // ProgressBar is thread-safe
+                pb.inc(1); // ProgressBar is thread-safe
                 (file.clone(), info)
             })
             .collect();
@@ -91,14 +91,10 @@ fn main() -> Result<()> {
             // Write to file
             let mut content = String::new();
             for (i, (path, info)) in results.iter().enumerate() {
-                content.push_str(&format!("{}\n", "─".repeat(60).dimmed()));
-                content.push_str(&format!(
-                    "{} [{}/{}]\n",
-                    path.display().to_string().bold().cyan(),
-                    i + 1,
-                    total
-                ));
-                content.push_str(info);
+                content.push_str(&format!("{}\n", "─".repeat(60)));
+                content.push_str(&format!("{} [{}/{}]\n", path.display(), i + 1, total));
+                let clean_info = strip_ansi_escapes::strip_str(info);
+                content.push_str(&clean_info);
             }
             std::fs::write(INFO_OUTPUT_FILE, content)
                 .with_context(|| format!("Failed to write info output to {}", INFO_OUTPUT_FILE))?;
