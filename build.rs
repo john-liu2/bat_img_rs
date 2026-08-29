@@ -4,7 +4,6 @@
 /// (e.g. /opt/homebrew on Apple Silicon, /usr/local on Intel).
 /// `pkg-config` is the primary discovery mechanism; we fall back to
 /// hard-coded Homebrew paths when pkg-config is absent.
-
 fn main() {
     // Let libheif-rs / its build script handle the linking through pkg-config.
     // We only add the Homebrew search path as a fallback for macOS.

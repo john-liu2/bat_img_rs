@@ -61,7 +61,7 @@ impl ProcessingContext {
             })?;
 
             // Fast path for unoriented photos; fall back to full decoding if orientation needs pixel rotation
-            let has_orientation = exif::read_orientation(&raw_bytes).map_or(false, |o| o != 1);
+            let has_orientation = exif::read_orientation(&raw_bytes).is_some_and(|o| o != 1);
             if !has_orientation {
                 return self.process_metadata_fast_path(raw_bytes);
             }

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use glob::glob;
+use std::path::Path;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -11,7 +12,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "webp", "tiff", "tif", "bmp", "gif", "heic", "heif",
 ];
 
-fn is_image(path: &PathBuf) -> bool {
+fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| IMAGE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
@@ -133,10 +134,10 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
     };
 
     // ── Rotation ────────────────────────────────────────────────────────────
-    if let Some(rot) = args.rotate {
-        if ![90, 180, 270].contains(&rot) {
-            return Err(BatImgError::InvalidRotation(rot).into());
-        }
+    if let Some(rot) = args.rotate
+        && ![90, 180, 270].contains(&rot)
+    {
+        return Err(BatImgError::InvalidRotation(rot).into());
     }
 
     // ── Border color ────────────────────────────────────────────────────────

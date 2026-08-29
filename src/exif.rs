@@ -133,7 +133,7 @@ fn webp_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
             _ => {}
         }
         pos = payload_end;
-        if size % 2 != 0 {
+        if !size.is_multiple_of(2) {
             pos += 1;
         }
     }
@@ -146,16 +146,15 @@ fn tiff_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
         return None;
     }
     // If the TIFF contains a JPEG stream, use the JPEG parser.
-    if bytes.windows(2).any(|w| w == [0xFF, 0xD8]) {
-        if let Some(jpeg_subsampling) = jpeg_chroma_subsampling(bytes) {
-            return Some(jpeg_subsampling);
-        }
+    if bytes.windows(2).any(|w| w == [0xFF, 0xD8])
+        && let Some(jpeg_subsampling) = jpeg_chroma_subsampling(bytes)
+    {
+        return Some(jpeg_subsampling);
     }
     Some("4:4:4")
 }
 
 /// ---- For HEIC ----
-
 /// Find a box payload by searching for its 4-byte type string.
 fn find_box_payload_by_type<'a>(bytes: &'a [u8], target: &[u8; 4]) -> Option<&'a [u8]> {
     let mut pos = 0;
@@ -279,12 +278,11 @@ pub fn read_exif(path: &Path) -> Option<ExifInfo> {
     let raw_bytes = std::fs::read(path).ok()?;
 
     // 1. Try extracting from HEIC using libheif's native EXIF extraction
-    if heic::is_heic_bytes(&raw_bytes) {
-        if let Some(heic_exif) = extract_heic_exif_native(&raw_bytes) {
-            if let Some(info) = parse_exif_bytes(&heic_exif) {
-                return Some(info);
-            }
-        }
+    if heic::is_heic_bytes(&raw_bytes)
+        && let Some(heic_exif) = extract_heic_exif_native(&raw_bytes)
+        && let Some(info) = parse_exif_bytes(&heic_exif)
+    {
+        return Some(info);
     }
     // 2. Try extracting using our custom container scanning
     let tiff_bytes = if let Some(extracted) = extract_heic_exif_raw(&raw_bytes) {
@@ -533,10 +531,10 @@ fn extract_heic_exif_native(bytes: &[u8]) -> Option<Vec<u8>> {
 
     for &id in ids.iter().take(count) {
         // `metadata` returns `Result<Vec<u8>, HeifError>`.
-        if let Ok(data) = handle.metadata(id) {
-            if let Some(tiff) = tiff_from_heic_metadata(&data) {
-                return Some(tiff.to_vec());
-            }
+        if let Ok(data) = handle.metadata(id)
+            && let Some(tiff) = tiff_from_heic_metadata(&data)
+        {
+            return Some(tiff.to_vec());
         }
     }
     None
@@ -664,7 +662,7 @@ fn find_heic_meta_bounds(bytes: &[u8]) -> Option<(usize, usize)> {
         if box_size < header_len
             || pos
                 .checked_add(box_size)
-                .map_or(true, |end| end > bytes.len())
+                .is_none_or(|end| end > bytes.len())
         {
             break;
         }
@@ -686,8 +684,8 @@ pub fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
     for i in 0..bytes.len().saturating_sub(10) {
         if &bytes[i..i + 6] == b"Exif\0\0" {
             let tiff_start = i + 6;
-            if &bytes[tiff_start..tiff_start + 4] == [0x49, 0x49, 0x2A, 0x00]
-                || &bytes[tiff_start..tiff_start + 4] == [0x4D, 0x4D, 0x00, 0x2A]
+            if bytes[tiff_start..tiff_start + 4] == [0x49, 0x49, 0x2A, 0x00]
+                || bytes[tiff_start..tiff_start + 4] == [0x4D, 0x4D, 0x00, 0x2A]
             {
                 return Some(tiff_start);
             }
@@ -695,8 +693,8 @@ pub fn find_tiff_header(bytes: &[u8]) -> Option<usize> {
     }
     // 2. Scan for raw TIFF magic bytes
     for i in 0..bytes.len().saturating_sub(4) {
-        if &bytes[i..i + 4] == [0x49, 0x49, 0x2A, 0x00]
-            || &bytes[i..i + 4] == [0x4D, 0x4D, 0x00, 0x2A]
+        if bytes[i..i + 4] == [0x49, 0x49, 0x2A, 0x00]
+            || bytes[i..i + 4] == [0x4D, 0x4D, 0x00, 0x2A]
         {
             return Some(i);
         }
@@ -777,10 +775,10 @@ fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> 
 fn rewrite_png_exif_without_gps(png: &[u8]) -> Result<Vec<u8>> {
     let mut out = png.to_vec();
     foreach_png_chunk_mut(&mut out, |ctype, data| {
-        if ctype == b"eXIf" {
-            if let Ok(new_tiff) = strip_gps_from_tiff(data) {
-                data.copy_from_slice(&new_tiff);
-            }
+        if ctype == b"eXIf"
+            && let Ok(new_tiff) = strip_gps_from_tiff(data)
+        {
+            data.copy_from_slice(&new_tiff);
         }
     })?;
     Ok(out)
@@ -921,7 +919,7 @@ fn rebuild_webp_chunks(
         }
 
         pos = payload_end;
-        if size % 2 != 0 {
+        if !size.is_multiple_of(2) {
             pos += 1;
         }
     }
@@ -1184,7 +1182,7 @@ fn inject_exif_into_webp(webp: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
     with_exif.extend_from_slice(b"EXIF");
     with_exif.extend_from_slice(&(tiff.len() as u32).to_le_bytes());
     with_exif.extend_from_slice(tiff);
-    if tiff.len() % 2 != 0 {
+    if !tiff.len().is_multiple_of(2) {
         with_exif.push(0);
     }
     with_exif.extend_from_slice(&out[12..]);
@@ -1236,7 +1234,7 @@ fn extract_webp_exif_tiff(webp: &[u8]) -> Option<Vec<u8>> {
             return Some(webp[payload_start..payload_end].to_vec());
         }
         pos = payload_end;
-        if size % 2 != 0 {
+        if !size.is_multiple_of(2) {
             pos += 1;
         }
     }
@@ -1349,24 +1347,24 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
 
     for e in 0..entry_count {
         let entry_offset = ifd_offset + 2 + e * 12;
-        if let Some(tag) = read_u16(&buf, entry_offset) {
-            if tag == 0x8825 {
-                let next_entry = entry_offset + 12;
-                let end_of_entries = ifd_offset + 2 + entry_count * 12;
+        if let Some(tag) = read_u16(&buf, entry_offset)
+            && tag == 0x8825
+        {
+            let next_entry = entry_offset + 12;
+            let end_of_entries = ifd_offset + 2 + entry_count * 12;
 
-                // Shift remaining entries and next IFD offset 12 bytes left
-                buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
+            // Shift remaining entries and next IFD offset 12 bytes left
+            buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
 
-                // Zero out the now-unused 12 trailing bytes to wipe stale 0x8825 markers
-                let freed_space_start = end_of_entries + 4 - 12;
-                let freed_space_end = end_of_entries + 4;
-                if freed_space_end <= buf.len() {
-                    buf[freed_space_start..freed_space_end].fill(0);
-                }
-                // Decrement entry count
-                write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
-                break;
+            // Zero out the now-unused 12 trailing bytes to wipe stale 0x8825 markers
+            let freed_space_start = end_of_entries + 4 - 12;
+            let freed_space_end = end_of_entries + 4;
+            if freed_space_end <= buf.len() {
+                buf[freed_space_start..freed_space_end].fill(0);
             }
+            // Decrement entry count
+            write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
+            break;
         }
     }
     Ok(buf)
