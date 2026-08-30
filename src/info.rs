@@ -8,6 +8,27 @@ use std::path::Path;
 
 const TAB_WIDTH: usize = 15;
 
+/// Convert bytes to human-readable KB, MB, or GB
+pub fn easy_file_sz(bytes: u64) -> String {
+    let units = ["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+
+    // Divide by 1024 as long as the size is >= 1024
+    // AND we haven't run out of units (stop at GB)
+    while size >= 1024.0 && unit_index < units.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+    let unit = units[unit_index];
+
+    // Format based on the unit
+    match unit {
+        "B" | "KB" => format!("{} {}", size.round() as u64, unit),
+        _ => format!("{:.1} {}", size, unit),
+    }
+}
+
 /// Build a detailed info string for a single image file.
 pub fn format_info(file: &Path) -> String {
     let width = TAB_WIDTH;
@@ -16,13 +37,7 @@ pub fn format_info(file: &Path) -> String {
     // File system metadata
     if let Ok(metadata) = std::fs::metadata(file) {
         let bytes = metadata.len();
-        let readable_size = if bytes >= 1_048_576 {
-            format!("{:.1} MB", bytes as f64 / 1_048_576.0)
-        } else if bytes >= 1024 {
-            format!("{:.0} KB", bytes as f64 / 1024.0)
-        } else {
-            format!("{} B", bytes)
-        };
+        let readable_size = easy_file_sz(bytes);
         out.push_str(&format!(
             "  {:<width$} : {} ({})\n",
             "File Size".bold(),

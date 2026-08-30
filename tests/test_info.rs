@@ -3,9 +3,46 @@ mod common;
 #[cfg(test)]
 mod tests {
     use super::common::{create_test_heic, create_test_jpeg, create_test_png};
-    use bat_img_rs::info::format_info;
+    use bat_img_rs::info::{easy_file_sz, format_info};
     use std::path::Path;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_bytes() {
+        assert_eq!(easy_file_sz(0), "0 B");
+        assert_eq!(easy_file_sz(512), "512 B");
+        assert_eq!(easy_file_sz(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_kilobytes() {
+        assert_eq!(easy_file_sz(1024), "1 KB");
+        assert_eq!(easy_file_sz(1500), "1 KB"); // 1500 / 1024 = 1.46... rounds to 1
+        assert_eq!(easy_file_sz(2000), "2 KB"); // 2000 / 1024 = 1.95... rounds to 2
+    }
+
+    #[test]
+    fn test_megabytes() {
+        // Exact MB bound
+        assert_eq!(easy_file_sz(1_048_576), "1.0 MB");
+        // 1.5 MB
+        assert_eq!(easy_file_sz(1_572_864), "1.5 MB");
+    }
+
+    #[test]
+    fn test_gigabytes() {
+        // Exact GB bound
+        assert_eq!(easy_file_sz(1_073_741_824), "1.0 GB");
+        // 2.5 GB
+        assert_eq!(easy_file_sz(2_684_354_560), "2.5 GB");
+    }
+
+    #[test]
+    fn test_terabyte_overflow() {
+        // 1 TB (1024 * 1024 * 1024 * 1024)
+        // Checks that the loop stops at GB and doesn't divide an extra time
+        assert_eq!(easy_file_sz(1_099_511_627_776), "1024.0 GB");
+    }
 
     #[test]
     fn jpeg_info_contains_key_fields() {
