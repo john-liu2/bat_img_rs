@@ -133,6 +133,71 @@ mod tests {
         assert_eq!(details.c_profile, "LG UltraFine");
     }
 
+    const JPEG_FIXTURE: &str = "tests/fixtures/IMG_4412.jpeg";
+    #[test]
+    fn fixture_jpeg_extract_icc_profile_name() {
+        let fixture = Path::new(JPEG_FIXTURE);
+        assert!(fixture.exists());
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &raw_bytes);
+        assert_eq!(details.c_profile, "sRGB IEC61966-2.1");
+    }
+
+    #[test]
+    fn image_details_jpeg_exif_color_space_no_icc_srgb() {
+        // Build a TIFF with a ColorSpace tag (0xA001) = 1 (sRGB)
+        let tiff = build_tiff_le(&[(0xA001, 3, 1)]);
+        let jpeg = jpeg_with_exif(&tiff);
+
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg);
+        assert_eq!(details.c_profile, "sRGB IEC61966-2.1");
+    }
+
+    #[test]
+    fn image_details_jpeg_exif_color_space_no_icc_adobe_rgb() {
+        // Build a TIFF with a ColorSpace tag (0xA001) = 2 (Adobe RGB)
+        let tiff = build_tiff_le(&[(0xA001, 3, 2)]);
+        let jpeg = jpeg_with_exif(&tiff);
+
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg);
+        assert_eq!(details.c_profile, "Adobe RGB (1998)");
+    }
+
+    #[test]
+    fn image_details_jpeg_exif_color_space_unknown_default() {
+        // Build a TIFF with a ColorSpace tag = 0 (unknown)
+        let tiff = build_tiff_le(&[(0xA001, 3, 0)]);
+        let jpeg = jpeg_with_exif(&tiff);
+
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg);
+        assert_eq!(details.c_profile, "sRGB");
+    }
+
+    #[test]
+    fn image_details_png_with_exif_color_space_does_not_override_icc() {
+        // PNG with an ICC profile named "sRGB" and EXIF ColorSpace = 1
+        // The ICC profile should take precedence.
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let chunk_data = b"sRGB\0\0fake_compressed_payload";
+        png.extend_from_slice(&(chunk_data.len() as u32).to_be_bytes());
+        png.extend_from_slice(b"iCCP");
+        png.extend_from_slice(chunk_data);
+        png.extend_from_slice(&[0, 0, 0, 0]); // CRC placeholder
+
+        // Append an eXIf chunk containing the TIFF with ColorSpace tag
+        let tiff = build_tiff_le(&[(0xA001, 3, 1)]);
+        let mut exif_chunk = Vec::new();
+        exif_chunk.extend_from_slice(&(tiff.len() as u32).to_be_bytes());
+        exif_chunk.extend_from_slice(b"eXIf");
+        exif_chunk.extend_from_slice(&tiff);
+        // Compute CRC for eXIf chunk (not critical for test)
+        exif_chunk.extend_from_slice(&[0, 0, 0, 0]);
+        png.extend_from_slice(&exif_chunk);
+
+        let details = get_image_details(image::ColorType::Rgb8, "PNG", &png);
+        assert_eq!(details.c_profile, "sRGB"); // from ICC, not EXIF
+    }
+
     #[test]
     fn parses_apple_style_heif_exif_with_optional_ifd_error() {
         // The HEIF offset points six bytes past the offset field, over the

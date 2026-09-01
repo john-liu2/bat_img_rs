@@ -135,7 +135,7 @@ fn parse_icc_profile_name(icc: &[u8]) -> Option<String> {
 }
 
 // Helper: Extract ICC bytes based on container format
-fn extract_icc_profile_name(format: &str, bytes: &[u8]) -> Option<String> {
+fn get_icc_profile_name(format: &str, bytes: &[u8]) -> Option<String> {
     match format {
         "JPEG" | "JPG" => {
             let mut i = 2;
@@ -504,7 +504,14 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
     };
     // Get color profile (icc_profile) name
     let mut c_profile =
-        extract_icc_profile_name(format, bytes).unwrap_or_else(|| "Unknown".to_string());
+        get_icc_profile_name(format, bytes).unwrap_or_else(|| "Unknown".to_string());
+    if c_profile == "Unknown" {
+        // Set "sRGB IEC61966-2.1" if EXIF ColorSpace tag (0xA001) is 1
+        if let Some(name) = exif_color_profile_name(format, bytes) {
+            c_profile = name;
+        }
+    }
+    // If still unknown, set the default
     if c_profile == "Unknown" {
         c_profile = "sRGB".to_string();
     }
@@ -1219,7 +1226,9 @@ fn extract_jpeg_exif_tiff(bytes: &[u8]) -> Option<&[u8]> {
     None
 }
 
-fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
+/// Generic TIFF short-tag reader.
+/// Returns the value of a SHORT (type 3) tag with count=1.
+fn read_short_tag_from_tiff(tiff: &[u8], target_tag: u16) -> Option<u16> {
     if tiff.len() < 8 {
         return None;
     }
@@ -1230,22 +1239,21 @@ fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
         _ => return None,
     };
 
-    let read_u16 = |buf: &[u8], offset: usize| -> Option<u16> {
-        buf.get(offset..offset + 2).map(|b| {
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
             if little_endian {
-                u16::from_le_bytes([b[0], b[1]])
+                u16::from_le_bytes([s[0], s[1]])
             } else {
-                u16::from_be_bytes([b[0], b[1]])
+                u16::from_be_bytes([s[0], s[1]])
             }
         })
     };
-
-    let read_u32 = |buf: &[u8], offset: usize| -> Option<u32> {
-        buf.get(offset..offset + 4).map(|b| {
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
             if little_endian {
-                u32::from_le_bytes([b[0], b[1], b[2], b[3]])
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
             } else {
-                u32::from_be_bytes([b[0], b[1], b[2], b[3]])
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
             }
         })
     };
@@ -1256,11 +1264,55 @@ fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
     for e in 0..entry_count {
         let entry_offset = ifd_offset + 2 + e * 12;
         let tag = read_u16(tiff, entry_offset)?;
-        if tag == 0x0112 {
-            return Some(read_u16(tiff, entry_offset + 8)? as u32);
+        if tag == target_tag {
+            // For a SHORT tag with count=1, the value is in the 2‑byte field
+            // starting at entry_offset+8 (assuming type=3 and count=1).
+            // We don't verify type/count here for simplicity; orientation and
+            // color space both use this pattern in practice.
+            return read_u16(tiff, entry_offset + 8);
         }
     }
     None
+}
+
+/// Extract the raw TIFF block from any supported container based on format string.
+fn extract_tiff_for_profile(format: &str, bytes: &[u8]) -> Option<Vec<u8>> {
+    match format {
+        "JPEG" | "JPG" => extract_jpeg_exif_tiff(bytes).map(|t| t.to_vec()),
+        "PNG" => extract_png_exif_tiff(bytes),
+        "WEBP" => extract_webp_exif_tiff(bytes),
+        "TIFF" => Some(bytes.to_vec()),
+        "HEIC" => extract_heic_exif_raw(bytes),
+        _ => None,
+    }
+}
+
+/// Read the EXIF `ColorSpace` tag (0xA001) using the robust `exif_lib` parser.
+fn exif_color_space_tag(tiff: &[u8]) -> Option<u16> {
+    let mut reader = Reader::new();
+    reader.continue_on_error(true);
+    if let Ok(exif_data) = reader.read_raw(tiff.to_vec())
+        && let Some(field) = exif_data.get_field(Tag::ColorSpace, In::PRIMARY)
+    {
+        return field.value.get_uint(0).map(|v| v as u16);
+    }
+    // Fallback: manual primary IFD scan (handles minimal TIFFs with the tag in IFD0)
+    read_short_tag_from_tiff(tiff, 0xA001)
+}
+
+/// Determine a color‑profile name from the EXIF `ColorSpace` tag (0xA001).
+fn exif_color_profile_name(format: &str, bytes: &[u8]) -> Option<String> {
+    let tiff = extract_tiff_for_profile(format, bytes)?;
+    let color_space = exif_color_space_tag(&tiff)?;
+    match color_space {
+        1 => Some("sRGB IEC61966-2.1".to_string()),
+        2 => Some("Adobe RGB (1998)".to_string()),
+        _ => None,
+    }
+}
+
+fn parse_orientation_from_ifd(tiff: &[u8]) -> Option<u32> {
+    read_short_tag_from_tiff(tiff, 0x0112).map(|v| v as u32)
 }
 
 fn rewrite_jpeg_exif_without_gps(jpeg: &[u8]) -> Result<Vec<u8>> {
