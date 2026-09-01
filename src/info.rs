@@ -118,8 +118,13 @@ pub fn format_info(file: &Path) -> String {
     ));
     out.push_str(&format!(
         "  {:<width$} : {}\n",
-        "Colorspace".bold(),
+        "Color Space".bold(),
         img_details.colorspace
+    ));
+    out.push_str(&format!(
+        "  {:<width$} : {}\n",
+        "Color Profile".bold(),
+        img_details.c_profile
     ));
     if let Some(chroma) = img_details.chroma_format {
         out.push_str(&format!(
@@ -192,7 +197,7 @@ pub fn format_info(file: &Path) -> String {
         let has_gps = if exif_data.gps_present {
             "Present"
         } else {
-            "None"
+            "Absent"
         }
         .to_string();
         out.push_str(&format!("    {:<wid2$} : {}\n", "GPS Data".red(), has_gps));
@@ -200,7 +205,7 @@ pub fn format_info(file: &Path) -> String {
         if !found_any {
             out.push_str(&format!(
                 "    {}\n",
-                "No standard camera tags found in EXIF."
+                "No standard camera tags found in EXIF"
             ));
         }
     } else {

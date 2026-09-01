@@ -14,6 +14,7 @@ mod tests {
     use bat_img_rs::heic;
     use image::{DynamicImage, RgbImage};
     use libheif_rs::CompressionFormat;
+    use std::path::Path;
     use tempfile::{TempDir, tempdir};
 
     use super::common::{
@@ -33,6 +34,104 @@ mod tests {
 
     //     assert!(result.is_some(), "Failed to read EXIF from IMG_0496.HEIC");
     // }
+
+    // Helper to generate a dummy ICC profile containing a 'desc' tag
+    fn mock_icc_profile(name: &str) -> Vec<u8> {
+        let mut icc = vec![0u8; 128]; // Header
+        icc.extend_from_slice(&1u32.to_be_bytes()); // 1 Tag count
+
+        let name_bytes = name.as_bytes();
+        let payload_len = 12 + name_bytes.len() + 1;
+
+        // Tag directory entry
+        icc.extend_from_slice(b"desc");
+        icc.extend_from_slice(&144u32.to_be_bytes()); // Offset
+        icc.extend_from_slice(&(payload_len as u32).to_be_bytes()); // Size
+
+        // Tag payload
+        icc.extend_from_slice(b"desc");
+        icc.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+        icc.extend_from_slice(&((name_bytes.len() + 1) as u32).to_be_bytes()); // String length
+        icc.extend_from_slice(name_bytes);
+        icc.push(0); // Null terminator
+
+        icc
+    }
+
+    #[test]
+    fn test_extract_icc_profile_name_jpeg() {
+        let icc = mock_icc_profile("Display P3");
+        let mut jpeg = vec![0xFF, 0xD8]; // SOI
+
+        let app2_len = (14 + icc.len() + 2) as u16;
+        jpeg.extend_from_slice(&[0xFF, 0xE2]);
+        jpeg.extend_from_slice(&app2_len.to_be_bytes());
+        jpeg.extend_from_slice(b"ICC_PROFILE\0");
+        jpeg.extend_from_slice(&[1, 1]); // chunk 1 of 1
+        jpeg.extend_from_slice(&icc);
+        jpeg.extend_from_slice(&[0xFF, 0xD9]); // EOI
+
+        let details = get_image_details(image::ColorType::Rgb8, "JPEG", &jpeg);
+        assert_eq!(details.c_profile, "Display P3");
+    }
+
+    #[test]
+    fn test_extract_icc_profile_name_png() {
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec(); // PNG Magic
+
+        let chunk_data = b"sRGB\0\x00fake_compressed_payload";
+        png.extend_from_slice(&(chunk_data.len() as u32).to_be_bytes());
+        png.extend_from_slice(b"iCCP");
+        png.extend_from_slice(chunk_data);
+        png.extend_from_slice(&[0, 0, 0, 0]); // CRC placeholder
+
+        let details = get_image_details(image::ColorType::Rgb8, "PNG", &png);
+        assert_eq!(details.c_profile, "sRGB");
+    }
+
+    #[test]
+    fn test_extract_icc_profile_name_tiff() {
+        let icc = mock_icc_profile("ProPhoto RGB");
+        let mut tiff = b"II\x2a\x00\x08\x00\x00\x00".to_vec(); // Header pointing to IFD at byte 8
+
+        tiff.extend_from_slice(&1u16.to_le_bytes()); // 1 IFD entry
+        tiff.extend_from_slice(&34675u16.to_le_bytes()); // Tag: ICC Profile
+        tiff.extend_from_slice(&7u16.to_le_bytes()); // Type: UNDEFINED
+        tiff.extend_from_slice(&(icc.len() as u32).to_le_bytes()); // Count (size)
+
+        let payload_offset = 8 + 2 + 12 + 4; // Offset to payload
+        tiff.extend_from_slice(&(payload_offset as u32).to_le_bytes());
+        tiff.extend_from_slice(&[0, 0, 0, 0]); // Next IFD
+        tiff.extend_from_slice(&icc);
+
+        let details = get_image_details(image::ColorType::Rgb8, "TIFF", &tiff);
+        assert_eq!(details.c_profile, "ProPhoto RGB");
+    }
+
+    #[test]
+    fn test_extract_icc_profile_name_heic() {
+        let icc = mock_icc_profile("Adobe RGB (1998)");
+        let mut heic = Vec::new();
+
+        let box_size = (12 + icc.len()) as u32;
+        heic.extend_from_slice(&box_size.to_be_bytes()); // size
+        heic.extend_from_slice(b"colr"); // box type
+        heic.extend_from_slice(b"prof"); // color_type
+        heic.extend_from_slice(&icc);
+
+        let details = get_image_details(image::ColorType::Rgb8, "HEIC", &heic);
+        assert_eq!(details.c_profile, "Adobe RGB (1998)");
+    }
+
+    const HEIC_FIXTURE: &str = "tests/fixtures/Cartoon.heic";
+    #[test]
+    fn fixture_heic_extract_icc_profile_name() {
+        let fixture = Path::new(HEIC_FIXTURE);
+        assert!(fixture.exists());
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let details = get_image_details(image::ColorType::Rgb8, "HEIC", &raw_bytes);
+        assert_eq!(details.c_profile, "LG UltraFine");
+    }
 
     #[test]
     fn parses_apple_style_heif_exif_with_optional_ifd_error() {

@@ -59,7 +59,7 @@ mod tests {
         assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
-        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Color Space"));
         assert!(info.contains("Chroma Format"));
     }
 
@@ -78,7 +78,7 @@ mod tests {
         assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
-        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Color Space"));
         assert!(info.contains("Chroma Format"));
     }
 
@@ -99,7 +99,7 @@ mod tests {
         assert!(info.contains("100 x 100"));
         assert!(info.contains("Bit Depth"));
         assert!(info.contains("Alpha Channel"));
-        assert!(info.contains("Colorspace"));
+        assert!(info.contains("Color Space"));
         assert!(info.contains("Chroma Format"));
     }
 

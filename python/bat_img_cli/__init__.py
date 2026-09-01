@@ -13,6 +13,8 @@ from pathlib import Path
 
 
 def _binary_path() -> Path:
+    """Get the binary path
+    """
     here = Path(__file__).parent
     name = "bat_img.exe" if sys.platform == "win32" else "bat_img"
     candidate = here / "bin" / name
@@ -25,11 +27,13 @@ def _binary_path() -> Path:
 
 
 def main() -> None:
+    """Invoke the binary with CLI options
+    """
     binary = _binary_path()
     # Replace the current process with the binary so signals, exit codes,
     # and stdin/stdout all behave as if the user ran bat_img directly.
     if sys.platform != "win32":
         os.execv(binary, [str(binary)] + sys.argv[1:])
     else:
-        result = subprocess.run([str(binary)] + sys.argv[1:])
+        result = subprocess.run([str(binary)] + sys.argv[1:], check=False)
         sys.exit(result.returncode)
