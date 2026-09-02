@@ -23,12 +23,11 @@ pub struct ExifInfo {
 pub fn read_exif(path: &Path) -> Option<ExifInfo> {
     let raw_bytes = std::fs::read(path).ok()?;
     // 1. Try extracting from HEIC using libheif's native EXIF extraction
-    if heic::is_heic_bytes(&raw_bytes) {
-        if let Some(heic_exif) = extract_heic_exif_native(&raw_bytes) {
-            if let Some(info) = parse_exif_bytes(&heic_exif) {
-                return Some(info);
-            }
-        }
+    if heic::is_heic_bytes(&raw_bytes)
+        && let Some(heic_exif) = extract_heic_exif_native(&raw_bytes)
+        && let Some(info) = parse_exif_bytes(&heic_exif)
+    {
+        return Some(info);
     }
     // 2. Try extracting using our custom container scanning
     let tiff_bytes = if let Some(extracted) = extract_heic_exif_raw(&raw_bytes) {
@@ -131,10 +130,10 @@ fn extract_heic_exif_native(bytes: &[u8]) -> Option<Vec<u8>> {
     let mut ids: Vec<ItemId> = vec![0; 32];
     let count = handle.metadata_block_ids(&mut ids, b"Exif");
     for &id in ids.iter().take(count) {
-        if let Ok(data) = handle.metadata(id) {
-            if let Some(tiff) = tiff_from_heic_metadata(&data) {
-                return Some(tiff.to_vec());
-            }
+        if let Ok(data) = handle.metadata(id)
+            && let Some(tiff) = tiff_from_heic_metadata(&data)
+        {
+            return Some(tiff.to_vec());
         }
     }
     None

@@ -1,3 +1,4 @@
+/// Test bat_img_rs::cli
 mod common;
 
 #[cfg(test)]

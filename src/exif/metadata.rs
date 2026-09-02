@@ -122,19 +122,19 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
     };
     for e in 0..entry_count {
         let entry_offset = ifd_offset + 2 + e * 12;
-        if let Some(tag) = read_u16(&buf, entry_offset) {
-            if tag == 0x8825 {
-                let next_entry = entry_offset + 12;
-                let end_of_entries = ifd_offset + 2 + entry_count * 12;
-                buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
-                let freed_space_start = end_of_entries + 4 - 12;
-                let freed_space_end = end_of_entries + 4;
-                if freed_space_end <= buf.len() {
-                    buf[freed_space_start..freed_space_end].fill(0);
-                }
-                write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
-                break;
+        if let Some(tag) = read_u16(&buf, entry_offset)
+            && tag == 0x8825
+        {
+            let next_entry = entry_offset + 12;
+            let end_of_entries = ifd_offset + 2 + entry_count * 12;
+            buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
+            let freed_space_start = end_of_entries + 4 - 12;
+            let freed_space_end = end_of_entries + 4;
+            if freed_space_end <= buf.len() {
+                buf[freed_space_start..freed_space_end].fill(0);
             }
+            write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
+            break;
         }
     }
     Ok(buf)
@@ -271,10 +271,10 @@ fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> 
 fn rewrite_png_exif_without_gps(png: &[u8]) -> Result<Vec<u8>> {
     let mut out = png.to_vec();
     foreach_png_chunk_mut(&mut out, |ctype, data| {
-        if ctype == b"eXIf" {
-            if let Ok(new_tiff) = strip_gps_from_tiff(data) {
-                data.copy_from_slice(&new_tiff);
-            }
+        if ctype == b"eXIf"
+            && let Ok(new_tiff) = strip_gps_from_tiff(data)
+        {
+            data.copy_from_slice(&new_tiff);
         }
     })?;
     Ok(out)

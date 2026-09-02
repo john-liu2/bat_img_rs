@@ -274,10 +274,10 @@ fn extract_icc_from_heic(bytes: &[u8]) -> Option<String> {
 fn exif_color_space_tag(tiff: &[u8]) -> Option<u16> {
     let mut reader = Reader::new();
     reader.continue_on_error(true);
-    if let Ok(exif_data) = reader.read_raw(tiff.to_vec()) {
-        if let Some(field) = exif_data.get_field(Tag::ColorSpace, In::PRIMARY) {
-            return field.value.get_uint(0).map(|v| v as u16);
-        }
+    if let Ok(exif_data) = reader.read_raw(tiff.to_vec())
+        && let Some(field) = exif_data.get_field(Tag::ColorSpace, In::PRIMARY)
+    {
+        return field.value.get_uint(0).map(|v| v as u16);
     }
     // fallback manual scan
     read_short_tag_from_tiff(tiff, 0xA001)

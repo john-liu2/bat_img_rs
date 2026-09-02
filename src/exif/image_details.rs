@@ -50,10 +50,10 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
 
     let mut c_profile =
         get_icc_profile_name(format, bytes).unwrap_or_else(|| "Unknown".to_string());
-    if c_profile == "Unknown" {
-        if let Some(name) = exif_color_profile_name(format, bytes) {
-            c_profile = name;
-        }
+    if c_profile == "Unknown"
+        && let Some(name) = exif_color_profile_name(format, bytes)
+    {
+        c_profile = name;
     }
     if c_profile == "Unknown" {
         c_profile = "sRGB".to_string();
@@ -179,10 +179,10 @@ fn tiff_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
         return None;
     }
     // if TIFF contains a JPEG stream, use JPEG parser
-    if bytes.windows(2).any(|w| w == [0xFF, 0xD8]) {
-        if let Some(jpeg) = jpeg_chroma_subsampling(bytes) {
-            return Some(jpeg);
-        }
+    if bytes.windows(2).any(|w| w == [0xFF, 0xD8])
+        && let Some(jpeg) = jpeg_chroma_subsampling(bytes)
+    {
+        return Some(jpeg);
     }
     Some("4:4:4")
 }

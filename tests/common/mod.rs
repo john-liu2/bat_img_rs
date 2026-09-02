@@ -7,6 +7,60 @@ use libheif_rs::CompressionFormat;
 use std::path::PathBuf;
 use tempfile::TempDir;
 
+// Helper to generate a dummy ICC profile containing a 'desc' tag
+#[allow(dead_code)]
+pub fn mock_icc_profile(name: &str) -> Vec<u8> {
+    let mut icc = vec![0u8; 128]; // Header
+    icc.extend_from_slice(&1u32.to_be_bytes()); // 1 Tag count
+
+    let name_bytes = name.as_bytes();
+    let payload_len = 12 + name_bytes.len() + 1;
+
+    // Tag directory entry
+    icc.extend_from_slice(b"desc");
+    icc.extend_from_slice(&144u32.to_be_bytes()); // Offset
+    icc.extend_from_slice(&(payload_len as u32).to_be_bytes()); // Size
+
+    // Tag payload
+    icc.extend_from_slice(b"desc");
+    icc.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+    icc.extend_from_slice(&((name_bytes.len() + 1) as u32).to_be_bytes()); // String length
+    icc.extend_from_slice(name_bytes);
+    icc.push(0); // Null terminator
+
+    icc
+}
+
+// Helper to synthesize minimal HEIC structure
+#[allow(dead_code)]
+pub fn mock_heic_with_exif(tiff_payload: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    // ── ftyp box (valid HEIC container) ──
+    let ftyp_size = 20; // 4 (size) + 4 (type) + 4 (major) + 4 (minor) + 4 (compat)
+    bytes.extend_from_slice(&(ftyp_size as u32).to_be_bytes());
+    bytes.extend_from_slice(b"ftyp");
+    bytes.extend_from_slice(b"heic"); // major brand
+    bytes.extend_from_slice(&0u32.to_be_bytes()); // minor version
+    bytes.extend_from_slice(b"mif1"); // compatible brand
+
+    // ── meta box ──
+    let exif_box_size = 8 + 4 + tiff_payload.len(); // header + fullbox + payload
+    let meta_payload_len = 4 + exif_box_size; // version/flags + Exif box
+    let meta_box_len = 8 + meta_payload_len;
+    bytes.extend_from_slice(&(meta_box_len as u32).to_be_bytes());
+    bytes.extend_from_slice(b"meta");
+    bytes.extend_from_slice(&[0, 0, 0, 0]); // meta version/flags
+
+    // ── Exif box ──
+    bytes.extend_from_slice(&(exif_box_size as u32).to_be_bytes());
+    bytes.extend_from_slice(b"Exif");
+    bytes.extend_from_slice(&[0, 0, 0, 0]); // Exif version/flags
+    bytes.extend_from_slice(tiff_payload);
+
+    bytes
+}
+
 #[allow(dead_code)]
 pub fn create_test_heic(dir: &TempDir, name: &str) -> Option<PathBuf> {
     let path = dir.path().join(name);
