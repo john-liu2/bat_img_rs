@@ -75,21 +75,28 @@ mod tests {
     #[test]
     fn fixture_heic_extract_icc_profile_name() {
         let fixture = Path::new("tests/fixtures/Cartoon.heic");
-        if fixture.exists() {
-            let raw_bytes = std::fs::read(fixture).unwrap();
-            let details = get_image_details(ColorType::Rgb8, "HEIC", &raw_bytes);
-            assert_eq!(details.c_profile, "LG UltraFine");
-        }
+        assert!(fixture.exists());
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let details = get_image_details(ColorType::Rgb8, "HEIC", &raw_bytes);
+        assert_eq!(details.c_profile, "LG UltraFine");
     }
 
     #[test]
     fn fixture_jpeg_extract_icc_profile_name() {
         let fixture = Path::new("tests/fixtures/IMG_4412.jpeg");
-        if fixture.exists() {
-            let raw_bytes = std::fs::read(fixture).unwrap();
-            let details = get_image_details(ColorType::Rgb8, "JPEG", &raw_bytes);
-            assert_eq!(details.c_profile, "sRGB IEC61966-2.1");
-        }
+        assert!(fixture.exists());
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let details = get_image_details(ColorType::Rgb8, "JPEG", &raw_bytes);
+        assert_eq!(details.c_profile, "sRGB IEC61966-2.1");
+    }
+
+    #[test]
+    fn fixture_png_extract_icc_profile_name() {
+        let fixture = Path::new("tests/fixtures/Cute.png");
+        assert!(fixture.exists());
+        let raw_bytes = std::fs::read(fixture).unwrap();
+        let details = get_image_details(image::ColorType::Rgb8, "PNG", &raw_bytes);
+        assert_eq!(details.c_profile, "LG UltraFine");
     }
 
     #[test]

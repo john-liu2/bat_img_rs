@@ -34,6 +34,9 @@ libheif-rs = { version = "2.7", features = ["image"] }
 # EXIF metadata manipulation (strip GPS, read metadata)
 exif_lib = { package = "kamadak-exif", version = "0.6" }
 
+# Decompress iCCP payload (zlib‑compressed)
+flate2 = "1.0"
+
 # Parallel processing
 rayon = "1.10"
 

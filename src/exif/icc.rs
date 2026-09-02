@@ -2,6 +2,8 @@
 
 use crate::exif::container::{extract_exif_tiff, is_png, is_tiff, is_webp};
 use exif_lib::{In, Reader, Tag};
+use flate2::read::{DeflateDecoder, ZlibDecoder};
+use std::io::Read;
 
 /// Extract ICC profile name from container bytes.
 pub fn get_icc_profile_name(format: &str, bytes: &[u8]) -> Option<String> {
@@ -186,7 +188,41 @@ fn extract_icc_from_png(bytes: &[u8]) -> Option<String> {
         if ctype == b"iCCP" {
             let data = &bytes[i + 8..i + 8 + len];
             if let Some(null_pos) = data.iter().position(|&b| b == 0) {
-                return Some(String::from_utf8_lossy(&data[..null_pos]).into_owned());
+                let profile_name = String::from_utf8_lossy(&data[..null_pos]).into_owned();
+
+                // Check bounds before slicing to avoid panics on malformed chunks
+                if null_pos + 2 > data.len() {
+                    return Some(profile_name);
+                }
+                // Skip the 1-byte null separator and the 1-byte compression method
+                let compressed = &data[null_pos + 2..];
+
+                let mut decompressed = Vec::new();
+                let mut ok = false;
+
+                // Try zlib decompression
+                let mut decoder = ZlibDecoder::new(compressed);
+                if decoder.read_to_end(&mut decompressed).is_ok() {
+                    ok = true;
+                }
+
+                // If zlib fails, try raw deflate
+                if !ok {
+                    decompressed.clear();
+                    let mut decoder = DeflateDecoder::new(compressed);
+                    if decoder.read_to_end(&mut decompressed).is_ok() {
+                        ok = true;
+                    }
+                }
+
+                if ok {
+                    // Try standard parser
+                    if let Some(desc) = parse_icc_profile_name(&decompressed) {
+                        return Some(desc);
+                    }
+                }
+                // If all fails, return the chunk name as a last resort
+                return Some(profile_name);
             }
         }
         i += 12 + len;
