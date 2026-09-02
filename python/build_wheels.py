@@ -17,6 +17,7 @@ Outputs into dist/:
     bat_img-1.0.0-py3-none-win_amd64.whl
 """
 
+import platform
 import re
 import stat
 import sys
@@ -42,21 +43,26 @@ PLATFORM_MAP = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def cargo_version() -> str:
+    """Get version"""
     with (HERE.parent / "Cargo.toml").open("rb") as f:
         return tomllib.load(f)["package"]["version"]
 
 VERSION = cargo_version()
 
 def wheel_filename(platform_tag):
+    """Get wheel filename"""
     return f"{PACKAGE_NAME}-{VERSION}-{PYTHON_TAG}-{ABI_TAG}-{platform_tag}.whl"
 
 def sdist_filename():
+    """Get the dist package name"""
     return f"{PACKAGE_NAME}-{VERSION}.tar.gz"
 
 def dist_info_name():
+    """Get dist info"""
     return f"{PACKAGE_NAME}-{VERSION}.dist-info"
 
 def metadata_text():
+    """Get package meta data"""
     readme = (HERE / "README.md").read_text(encoding="utf-8")
     return (
         f"Metadata-Version: 2.3\n"
@@ -67,7 +73,7 @@ def metadata_text():
         f"License: MIT\n"
         f"License-File: LICENSE\n"
         f"Requires-Python: >=3.12\n"
-        f"Keywords: strip-gps,image,batch,heic,resize,exif,cli,cli-tool,image-processing,batch-processing\n"
+        f"Keywords: strip-gps,image,heic,resize,exif,cli-tool,image-processing,batch-processing\n"
         f"Classifier: License :: OSI Approved :: MIT License\n"
         f"Classifier: Programming Language :: Python :: 3 :: Only\n"
         f"Classifier: Programming Language :: Rust\n"
@@ -84,6 +90,7 @@ def metadata_text():
 # ── Wheel ─────────────────────────────────────────────────────────────────────
 
 def build_wheel(binary_path, platform_tag, dist_dir):
+    """Buuild the package wheel"""
     is_windows = "win" in platform_tag
     bin_name   = "bat_img.exe" if is_windows else "bat_img"
     di         = dist_info_name()
@@ -115,13 +122,12 @@ def build_wheel(binary_path, platform_tag, dist_dir):
     print(f"  [wheel] {whl_path.name}")
     return whl_path
 
-# ── Sdist (.tar.gz) ───────────────────────────────────────────────────────────
 
 def build_sdist(dist_dir):
     """
     Source distribution — no compiled binary included.
     pip always prefers a matching wheel, so only developers building from
-    source will use the sdist.
+    source will use the sdist (.tar.gz).
     """
     sdist_path = dist_dir / sdist_filename()
     prefix     = f"{PACKAGE_NAME}-{VERSION}"
@@ -144,12 +150,11 @@ def build_sdist(dist_dir):
     print(f"  [sdist] {sdist_path.name}")
     return sdist_path
 
-# ── Local build (current platform) ───────────────────────────────────────────
 
 def build_local(dist_dir):
-    import platform as _p
-    system  = _p.system()
-    machine = _p.machine().lower()
+    """Local build (current platform)"""
+    system  = platform.system()
+    machine = platform.machine().lower()
 
     if system == "Darwin":
         platform_tag = "macosx_11_0_arm64" if machine == "arm64" else "macosx_10_12_x86_64"
@@ -181,9 +186,9 @@ def build_local(dist_dir):
     build_sdist(dist_dir)
     return whl
 
-# ── CI all-platform build ─────────────────────────────────────────────────────
 
 def build_all(binaries_dir, dist_dir):
+    """CI all-platform build"""
     built = 0
     for subdir in sorted(binaries_dir.iterdir()):
         if not subdir.is_dir():
@@ -201,9 +206,9 @@ def build_all(binaries_dir, dist_dir):
     build_sdist(dist_dir)
     print(f"\nBuilt {built} wheel(s) + 1 sdist in {dist_dir}/")
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
+    """Entry point"""
     dist_dir = Path("dist")
     dist_dir.mkdir(exist_ok=True)
 
