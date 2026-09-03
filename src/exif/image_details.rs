@@ -60,7 +60,7 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
     }
 
     // PNG files do not use chroma subsampling (like 4:2:2 or 4:2:0)
-    // PNG store full-color for each pixel, equivalent to 4:4:4 (RGB) or 4:4:4:4 (RGBA)
+    // PNG store full-color on each pixel, equal to 4:4:4 (RGB) or 4:4:4:4 (RGBA)
     let png = if has_alpha {
         Some("4:4:4:4".to_string())
     } else {
@@ -193,8 +193,6 @@ fn tiff_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
     }
     Some("4:4:4")
 }
-
-// ---- HEIC chroma helpers (moved from original) ----------------------------
 
 /// Determine HEIC chroma format by scanning for hvcC or av1C boxes.
 fn heic_chroma_format(bytes: &[u8]) -> Option<&'static str> {

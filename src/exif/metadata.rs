@@ -2,7 +2,7 @@
 
 use crate::exif::container::{
     EXIF_HEADER, extract_exif_tiff, foreach_png_chunk_mut, is_jpeg, is_png, is_tiff, is_webp,
-    rebuild_webp_chunks, rewrite_png_chunks,
+    png_crc32, rebuild_webp_chunks, rewrite_png_chunks,
 };
 use crate::exif::heic::{
     extract_heic_exif_raw, replace_heic_exif_payload, strip_all_heic_metadata,
@@ -53,7 +53,7 @@ pub fn rewrite_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Ve
     reset_orientation_in_tiff(&mut exif_tiff);
 
     if is_jpeg(output) {
-        inject_exif_into_jpeg(output, &exif_tiff)
+        rewrite_jpeg_exif_segment(output, &exif_tiff)
     } else if is_png(output) {
         inject_exif_into_png(output, &exif_tiff)
     } else if is_webp(output) {
@@ -222,10 +222,6 @@ fn write_jpeg_app1_exif_segment(out: &mut Vec<u8>, tiff: &[u8]) {
     out.extend_from_slice(tiff);
 }
 
-fn inject_exif_into_jpeg(jpeg: &[u8], tiff: &[u8]) -> Result<Vec<u8>> {
-    rewrite_jpeg_exif_segment(jpeg, tiff)
-}
-
 fn strip_jpeg_app_segments(bytes: &[u8], should_remove: impl Fn(u8) -> bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -329,22 +325,6 @@ fn append_png_exif_chunk(out: &mut Vec<u8>, tiff: &[u8]) {
     crc_input.extend_from_slice(b"eXIf");
     crc_input.extend_from_slice(tiff);
     out.extend_from_slice(&png_crc32(&crc_input).to_be_bytes());
-}
-
-// re‑use png_crc32 from container.rs
-fn png_crc32(data: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    for &byte in data {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xEDB8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
 }
 
 // ---- WebP rewrite ---------------------------------------------------------

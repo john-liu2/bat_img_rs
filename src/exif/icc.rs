@@ -1,6 +1,8 @@
 //! ICC profile extraction and parsing.
 
-use crate::exif::container::{extract_exif_tiff, is_png, is_tiff, is_webp};
+use crate::exif::container::{
+    extract_exif_tiff, is_png, is_tiff, is_webp, read_short_tag_from_tiff,
+};
 use exif_lib::{In, Reader, Tag};
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use std::io::Read;
@@ -317,43 +319,4 @@ fn exif_color_space_tag(tiff: &[u8]) -> Option<u16> {
     }
     // fallback manual scan
     read_short_tag_from_tiff(tiff, 0xA001)
-}
-
-fn read_short_tag_from_tiff(tiff: &[u8], target_tag: u16) -> Option<u16> {
-    if tiff.len() < 8 {
-        return None;
-    }
-    let little_endian = match &tiff[0..2] {
-        b"II" => true,
-        b"MM" => false,
-        _ => return None,
-    };
-    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
-        b.get(o..o + 2).map(|s| {
-            if little_endian {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
-    };
-    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
-        b.get(o..o + 4).map(|s| {
-            if little_endian {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
-    };
-    let ifd_offset = read_u32(tiff, 4)? as usize;
-    let entry_count = read_u16(tiff, ifd_offset)? as usize;
-    for e in 0..entry_count {
-        let entry_offset = ifd_offset + 2 + e * 12;
-        let tag = read_u16(tiff, entry_offset)?;
-        if tag == target_tag {
-            return read_u16(tiff, entry_offset + 8);
-        }
-    }
-    None
 }

@@ -21,6 +21,45 @@ pub fn is_webp(bytes: &[u8]) -> bool {
     bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP"
 }
 
+pub fn read_short_tag_from_tiff(tiff: &[u8], target_tag: u16) -> Option<u16> {
+    if tiff.len() < 8 {
+        return None;
+    }
+    let little_endian = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
+            if little_endian {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
+            if little_endian {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let ifd_offset = read_u32(tiff, 4)? as usize;
+    let entry_count = read_u16(tiff, ifd_offset)? as usize;
+    for e in 0..entry_count {
+        let entry_offset = ifd_offset + 2 + e * 12;
+        let tag = read_u16(tiff, entry_offset)?;
+        if tag == target_tag {
+            return read_u16(tiff, entry_offset + 8);
+        }
+    }
+    None
+}
+
 /// Extract the raw TIFF/EXIF block from any supported image container.
 pub fn extract_exif_tiff(bytes: &[u8]) -> Option<Vec<u8>> {
     if is_jpeg(bytes) {
@@ -146,7 +185,7 @@ pub fn foreach_png_chunk_mut(
     Ok(())
 }
 
-fn png_crc32(data: &[u8]) -> u32 {
+pub fn png_crc32(data: &[u8]) -> u32 {
     let mut crc = 0xFFFF_FFFFu32;
     for &byte in data {
         crc ^= u32::from(byte);
