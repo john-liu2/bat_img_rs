@@ -1,6 +1,6 @@
 [package]
 name = "bat_img_rs"
-version = "1.1.3"
+version = "1.1.4"
 edition = "2024"
 authors = ["John Liu"]
 description = "A fast, multithreaded batch image processing CLI tool"
@@ -33,6 +33,9 @@ libheif-rs = { version = "2.7", features = ["image"] }
 
 # EXIF metadata manipulation (strip GPS, read metadata)
 exif_lib = { package = "kamadak-exif", version = "0.6" }
+
+# Decompress iCCP payload (zlib‑compressed)
+flate2 = "1.0"
 
 # Parallel processing
 rayon = "1.10"

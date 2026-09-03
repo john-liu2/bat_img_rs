@@ -180,12 +180,7 @@ pub fn format_exif_metadata(file: &Path) -> String {
             ));
             found_any = true;
         }
-        let has_gps = if exif_data.gps_present {
-            "Present"
-        } else {
-            "Absent"
-        }
-        .to_string();
+        let has_gps = if exif_data.gps_present { "Yes" } else { "No" }.to_string();
         out.push_str(&format!("    {:<wid2$} : {}\n", "GPS Data".red(), has_gps));
 
         if !found_any {
