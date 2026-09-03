@@ -7,7 +7,6 @@ use crate::exif::container::{
 use crate::exif::heic::{
     extract_heic_exif_raw, replace_heic_exif_payload, strip_all_heic_metadata,
 };
-use crate::exif::parser::reset_orientation_in_tiff;
 use anyhow::{Context, Result};
 use std::path::Path;
 
@@ -62,6 +61,60 @@ pub fn rewrite_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Ve
         Ok(exif_tiff)
     } else {
         Ok(output.to_vec())
+    }
+}
+
+fn reset_orientation_in_tiff(tiff: &mut [u8]) {
+    if tiff.len() < 8 {
+        return;
+    }
+    let little_endian = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return,
+    };
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
+            if little_endian {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
+            if little_endian {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
+        let bytes = if little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
+        if o + 2 <= b.len() {
+            b[o..o + 2].copy_from_slice(&bytes);
+        }
+    };
+    let ifd_offset = match read_u32(tiff, 4) {
+        Some(o) => o as usize,
+        None => return,
+    };
+    let entry_count = match read_u16(tiff, ifd_offset) {
+        Some(c) => c as usize,
+        None => return,
+    };
+    for e in 0..entry_count {
+        let entry_offset = ifd_offset + 2 + e * 12;
+        if read_u16(tiff, entry_offset) == Some(0x0112) {
+            write_u16(tiff, entry_offset + 8, 1);
+            break;
+        }
     }
 }
 
