@@ -59,8 +59,15 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
         c_profile = "sRGB".to_string();
     }
 
+    // PNG files do not use chroma subsampling (like 4:2:2 or 4:2:0)
+    // PNG store full-color for each pixel, equivalent to 4:4:4 (RGB) or 4:4:4:4 (RGBA)
+    let png = if has_alpha {
+        Some("4:4:4:4".to_string())
+    } else {
+        Some("4:4:4".to_string())
+    };
     let chroma_format = match format {
-        "PNG" => Some("4:4:4".to_string()),
+        "PNG" => png,
         "JPEG" => jpeg_chroma_subsampling(bytes).map(|s| s.to_string()),
         "WEBP" => webp_chroma_subsampling(bytes).map(|s| s.to_string()),
         "TIFF" => tiff_chroma_subsampling(bytes).map(|s| s.to_string()),
