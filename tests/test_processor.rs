@@ -329,7 +329,48 @@ mod tests {
     }
 
     // ── Grayscale ─────────────────────────────────────────────────────────────
-    // ── Grayscale ─────────────────────────────────────────────────────────────
+    #[test]
+    fn grayscale_tiff_output_is_grayscale() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        // Create a vivid green color TIFF image
+        let src = tmp.path().join("src.tiff");
+        solid_rgb(20, 20, 0, 200, 0).save(&src).unwrap();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+
+        // The output must be a true grayscale image
+        assert_eq!(img.color(), image::ColorType::L8);
+    }
+
+    #[test]
+    fn tiff_preserves_16bit_luma() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        // Create a 16-bit grayscale TIFF
+        let src = tmp.path().join("src16.tiff");
+        let img16 = image::ImageBuffer::<image::Luma<u16>, Vec<u16>>::from_pixel(
+            20,
+            20,
+            image::Luma([30000]),
+        );
+        image::DynamicImage::ImageLuma16(img16).save(&src).unwrap();
+
+        // Run pipeline with no structural changes (grayscale = false)
+        let p = base_pipeline(out.path().to_path_buf());
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+
+        // Must remain 16-bit Luma, not truncated to RGB8
+        assert_eq!(img.color(), image::ColorType::L16);
+    }
+
     #[test]
     fn grayscale_output_has_equal_rgb_channels() {
         let tmp = TempDir::new().unwrap();

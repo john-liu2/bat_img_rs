@@ -202,7 +202,17 @@ impl ProcessingContext {
 
         // Re-encoding for non-HEIC
         if !is_heic && let Some(ref exif_bytes) = processed_exif {
-            exif::write_exif_file(&output_path, exif_bytes, p.grayscale)?;
+            let ext = output_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+
+            // Skip EXIF injection for TIFF, as TIFFs store core image metadata in the same IFD structure.
+            // Overwriting it with the source bytes corrupts the newly saved color space tags.
+            if ext != "tif" && ext != "tiff" {
+                exif::write_exif_file(&output_path, exif_bytes, p.grayscale)?;
+            }
         }
         Ok(output_path)
     }
