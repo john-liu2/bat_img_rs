@@ -108,11 +108,7 @@ pub fn format_image_details(details: &exif::ImageDetails) -> String {
         details.c_profile
     ));
     if let Some(chroma) = &details.chroma_format {
-        out.push_str(&format!(
-            "  {:<width$} : {}\n",
-            "Chroma Format".bold(),
-            chroma
-        ));
+        out.push_str(&format!("  {:<width$} : {}\n", "Chroma".bold(), chroma));
     }
     out
 }

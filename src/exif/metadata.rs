@@ -1,4 +1,5 @@
-//! High‑level metadata stripping and rewriting operations.
+// exif/metadata.rs: High‑level metadata stripping and rewriting operations
+// Copyright © 2026 - Present, John Liu
 
 use crate::exif::container::{
     EXIF_HEADER, extract_exif_tiff, foreach_png_chunk_mut, is_jpeg, is_png, is_tiff, is_webp,
@@ -41,26 +42,6 @@ pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
         strip_all_heic_metadata(bytes)
     } else {
         Ok(bytes.to_vec())
-    }
-}
-
-/// Copy non‑GPS EXIF from a GPS‑stripped source image into freshly encoded output bytes.
-pub fn rewrite_exif_metadata(output: &[u8], source_stripped: &[u8]) -> Result<Vec<u8>> {
-    let Some(mut exif_tiff) = extract_exif_tiff(source_stripped) else {
-        return Ok(output.to_vec());
-    };
-    reset_orientation_in_tiff(&mut exif_tiff);
-
-    if is_jpeg(output) {
-        rewrite_jpeg_exif_segment(output, &exif_tiff)
-    } else if is_png(output) {
-        inject_exif_into_png(output, &exif_tiff)
-    } else if is_webp(output) {
-        inject_exif_into_webp(output, &exif_tiff)
-    } else if is_tiff(output) {
-        Ok(exif_tiff)
-    } else {
-        Ok(output.to_vec())
     }
 }
 
@@ -118,14 +99,115 @@ fn reset_orientation_in_tiff(tiff: &mut [u8]) {
     }
 }
 
-/// Graft GPS‑stripped EXIF from `source_stripped` into an on‑disk encoded output file.
-pub fn write_exif_file(output_path: &Path, source_stripped: &[u8]) -> Result<()> {
+/// Write GPS‑stripped EXIF from `source_stripped` into an on‑disk encoded output file.
+pub fn write_exif_file(
+    output_path: &Path,
+    source_stripped: &[u8],
+    is_grayscale: bool,
+) -> Result<()> {
     let encoded = std::fs::read(output_path)
         .with_context(|| format!("Cannot read {} for EXIF graft", output_path.display()))?;
-    let grafted = rewrite_exif_metadata(&encoded, source_stripped)?;
+    let grafted = rewrite_exif_metadata(&encoded, source_stripped, is_grayscale)?;
     std::fs::write(output_path, grafted)
         .with_context(|| format!("Cannot write EXIF graft to {}", output_path.display()))?;
     Ok(())
+}
+
+pub fn rewrite_exif_metadata(
+    output: &[u8],
+    source_stripped: &[u8],
+    is_grayscale: bool,
+) -> Result<Vec<u8>> {
+    let Some(mut exif_tiff) = extract_exif_tiff(source_stripped) else {
+        return Ok(output.to_vec());
+    };
+    reset_orientation_in_tiff(&mut exif_tiff);
+
+    if is_grayscale {
+        set_exif_color_space_to_uncalibrated(&mut exif_tiff);
+    }
+    if is_jpeg(output) {
+        rewrite_jpeg_exif_segment(output, &exif_tiff)
+    } else if is_png(output) {
+        inject_exif_into_png(output, &exif_tiff)
+    } else if is_webp(output) {
+        inject_exif_into_webp(output, &exif_tiff)
+    } else if is_tiff(output) {
+        Ok(exif_tiff)
+    } else {
+        Ok(output.to_vec())
+    }
+}
+
+/// Sets the EXIF ColorSpace tag (0xA001) in the Exif sub-IFD to Uncalibrated (0xFFFF).
+fn set_exif_color_space_to_uncalibrated(tiff: &mut [u8]) {
+    if tiff.len() < 8 {
+        return;
+    }
+    let little_endian = match &tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return,
+    };
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
+            if little_endian {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
+            if little_endian {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
+        let bytes = if little_endian {
+            v.to_le_bytes()
+        } else {
+            v.to_be_bytes()
+        };
+        if o + 2 <= b.len() {
+            b[o..o + 2].copy_from_slice(&bytes);
+        }
+    };
+
+    let ifd_offset = match read_u32(tiff, 4) {
+        Some(o) => o as usize,
+        None => return,
+    };
+    let entry_count = match read_u16(tiff, ifd_offset) {
+        Some(c) => c as usize,
+        None => return,
+    };
+
+    // Locate the ExifOffset tag (0x8769) to jump into the sub-IFD
+    let mut exif_ifd_offset = None;
+    for e in 0..entry_count {
+        let entry_offset = ifd_offset + 2 + e * 12;
+        if read_u16(tiff, entry_offset) == Some(0x8769) {
+            exif_ifd_offset = read_u32(tiff, entry_offset + 8).map(|v| v as usize);
+            break;
+        }
+    }
+
+    if let Some(exif_offset) = exif_ifd_offset
+        && let Some(exif_entry_count) = read_u16(tiff, exif_offset)
+    {
+        for e in 0..(exif_entry_count as usize) {
+            let entry_offset = exif_offset + 2 + e * 12;
+            if read_u16(tiff, entry_offset) == Some(0xA001) {
+                write_u16(tiff, entry_offset + 8, 0xFFFF);
+                break;
+            }
+        }
+    }
 }
 
 /// Strip GPS from a raw TIFF/EXIF block by removing the GPSInfo IFD pointer tag.

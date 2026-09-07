@@ -1,4 +1,5 @@
-/// Test bat_img_rs::processor
+// Test bat_img_rs::processor
+// Copyright © 2026 - Present, John Liu
 mod common;
 
 #[cfg(test)]
@@ -328,22 +329,45 @@ mod tests {
     }
 
     // ── Grayscale ─────────────────────────────────────────────────────────────
+    // ── Grayscale ─────────────────────────────────────────────────────────────
     #[test]
     fn grayscale_output_has_equal_rgb_channels() {
         let tmp = TempDir::new().unwrap();
         let out = TempDir::new().unwrap();
-        // Vivid green source — after grayscale R=G=B
+        // Vivid green source
         let src = save_png(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.png");
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+        // Test that structural changes don't overwrite grayscale
+        p.border_px = Some(5);
+        p.border_rgba = Some(Rgba([255, 0, 0, 255]));
+
+        let output = run(src, p);
+
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+
+        let img_rgb = img.to_rgb8();
+        let p0 = img_rgb.get_pixel(10, 10);
+        // All three channels equal after grayscale (luma conversion)
+        assert_eq!(p0[0], p0[1]);
+        assert_eq!(p0[1], p0[2]);
+    }
+
+    #[test]
+    fn grayscale_jpeg_saves_as_luma8() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+        let src = save_jpeg(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.jpg");
 
         let mut p = base_pipeline(out.path().to_path_buf());
         p.grayscale = true;
 
         let output = run(src, p);
-        let img = image::open(&output).unwrap().to_rgb8();
-        let p0 = img.get_pixel(10, 10);
-        // All three channels equal after grayscale (luma conversion)
-        assert_eq!(p0[0], p0[1]);
-        assert_eq!(p0[1], p0[2]);
+
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
     }
 
     // ── Format conversion ─────────────────────────────────────────────────────

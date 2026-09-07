@@ -1,15 +1,13 @@
-// HEIC / HEIF decoding and encoding via `libheif-rs`.
-//
-// ## System requirements (macOS)
-//   brew install libheif
-//
-// `libheif` brings in `libde265` (H.265/HEVC decoder) and
-// `libaom` (AV1/AVIF) as transitive dependencies.
+// heic.rs: HEIC / HEIF decoding and encoding via `libheif-rs`.
+// ## System requirements (macOS):  brew install libheif
+// `libheif` brings in `libde265` (H.265/HEVC decoder) and `libaom` (AV1/AVIF) as transitive dependencies.
+// Copyright © 2026 - Present, John Liu
 
 use anyhow::{Context, Result};
 use image::{DynamicImage, RgbImage, RgbaImage};
 use libheif_rs::{
-    Channel, ColorSpace, CompressionFormat, EncoderQuality, HeifContext, Image, LibHeif, RgbChroma,
+    Channel, ColorProfileRaw, ColorSpace, CompressionFormat, EncoderQuality, HeifContext, Image,
+    LibHeif, RgbChroma,
 };
 use std::path::Path;
 
@@ -176,6 +174,7 @@ pub fn encode(
     compression: CompressionFormat,
     quality: Option<u8>,
     exif_tiff: Option<&[u8]>,
+    icc_profile: Option<&[u8]>,
 ) -> Result<()> {
     let lib = LibHeif::new();
 
@@ -186,7 +185,23 @@ pub fn encode(
     let (width, height) = (img.width(), img.height());
 
     // ── Build libheif Image from pixel buffer ────────────────────────────────
-    let heif_img = if has_alpha {
+    let mut heif_img = if let DynamicImage::ImageLuma8(luma) = img {
+        let mut hi = Image::new(width, height, ColorSpace::Monochrome)
+            .context("libheif: cannot create Monochrome image")?;
+        hi.create_plane(Channel::Y, width, height, 8)
+            .context("libheif: cannot create Y plane")?;
+
+        let plane = hi.planes_mut().y.context("libheif: no Y plane")?;
+        let stride = plane.stride;
+        let data = plane.data;
+        for row in 0..height as usize {
+            let src = row * width as usize;
+            let dst = row * stride;
+            data[dst..dst + width as usize]
+                .copy_from_slice(&luma.as_raw()[src..src + width as usize]);
+        }
+        hi
+    } else if has_alpha {
         let rgba = img.to_rgba8();
         let mut hi = Image::new(width, height, ColorSpace::Rgb(RgbChroma::Rgba))
             .context("libheif: cannot create RGBA image")?;
@@ -228,16 +243,23 @@ pub fn encode(
         hi
     };
 
+    // Embed the ICC color profile directly into the HEIF container if provided
+    if let Some(icc) = icc_profile {
+        let profile = ColorProfileRaw::new(b"prof".into(), icc.to_vec());
+        heif_img
+            .set_color_profile_raw(&profile)
+            .context("libheif: failed to set custom ICC profile")?;
+    }
+
     // ── Set up encoder using the same codec as the input ─────────────────────
     let encoder_name = match compression {
         CompressionFormat::Av1 => "AV1",
         CompressionFormat::Hevc => "HEVC",
-        _ => "HEVC", // safe fallback
+        _ => "HEVC",
     };
 
     let mut encoder = lib
         .encoder_for_format(compression)
-        // If the exact codec isn't available, fall back to HEVC
         .or_else(|_| lib.encoder_for_format(CompressionFormat::Hevc))
         .with_context(|| {
             format!(
@@ -246,15 +268,12 @@ pub fn encode(
             )
         })?;
 
-    // Apply quality only when the user explicitly asked for it.
-    // Leaving it at the encoder default produces the most faithful re-encode.
     if let Some(q) = quality {
         encoder
             .set_quality(EncoderQuality::Lossy(q))
             .context("libheif: cannot set encoder quality")?;
     }
 
-    // ── Encode and write ─────────────────────────────────────────────────────
     let mut ctx = HeifContext::new().context("libheif: cannot create encoding context")?;
     let handle = ctx
         .encode_image(&heif_img, &mut encoder, None)
@@ -262,8 +281,6 @@ pub fn encode(
 
     if let Some(exif) = exif_tiff {
         let mut exif_block = Vec::with_capacity(exif.len() + 4);
-
-        // HEIF EXIF item starts with a 4-byte TIFF offset.
         exif_block.extend_from_slice(&0u32.to_be_bytes());
         exif_block.extend_from_slice(exif);
 

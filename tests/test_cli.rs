@@ -39,7 +39,7 @@ mod tests {
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Color Space") && stdout.contains("YCbCr"));
-        assert!(stdout.contains("Chroma Format")); // value may vary (e.g., 4:2:0, 4:4:4)
+        assert!(stdout.contains("Chroma")); // value may vary (e.g., 4:2:0, 4:4:4)
     }
 
     #[test]
@@ -52,7 +52,7 @@ mod tests {
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Color Space") && stdout.contains("RGB")); // PNG decoded as RGB
-        assert!(stdout.contains("Chroma Format") && stdout.contains("4:4:4"));
+        assert!(stdout.contains("Chroma") && stdout.contains("4:4:4"));
     }
 
     #[test]
@@ -68,6 +68,6 @@ mod tests {
         assert!(stdout.contains("Bit Depth") && stdout.contains("8 bits/channel"));
         assert!(stdout.contains("Alpha Channel") && stdout.contains("No"));
         assert!(stdout.contains("Color Space") && stdout.contains("YCbCr"));
-        assert!(stdout.contains("Chroma Format")); // value depends on encoder
+        assert!(stdout.contains("Chroma")); // value depends on encoder
     }
 }

@@ -42,7 +42,7 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
                     "RGBA"
                 }
             }
-            ColorType::L8 | ColorType::L16 => "Grayscale",
+            ColorType::L8 | ColorType::L16 => "Gray",
             _ => "Unknown",
         }
     }

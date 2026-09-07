@@ -1,4 +1,6 @@
-/// Test bat_img_rs::exif::metadata
+// Test bat_img_rs::exif::metadata
+// Copyright © 2026 - Present, John Liu
+
 mod common;
 
 #[cfg(test)]
@@ -29,6 +31,7 @@ mod tests {
             libheif_rs::CompressionFormat::Hevc,
             Some(80),
             Some(&tiff),
+            None,
         )
         .unwrap();
 
@@ -149,7 +152,7 @@ mod tests {
         let jpeg = jpeg_with_exif(&tiff);
         let stripped = strip_gps_metadata(&jpeg).unwrap();
 
-        let grafted = rewrite_exif_metadata(&encoded, &stripped).unwrap();
+        let grafted = rewrite_exif_metadata(&encoded, &stripped, false).unwrap();
         assert!(grafted.windows(2).any(|w| w == [0xFF, 0xE1]));
     }
 
@@ -163,7 +166,7 @@ mod tests {
         let encoded = strip_all_metadata(&jpeg).unwrap();
         assert!(!encoded.windows(2).any(|w| w == [0xFF, 0xE1]));
 
-        let grafted = rewrite_exif_metadata(&encoded, &stripped).unwrap();
+        let grafted = rewrite_exif_metadata(&encoded, &stripped, false).unwrap();
         assert!(grafted.windows(2).any(|w| w == [0xFF, 0xE1]));
         assert!(!grafted.windows(4).any(|w| w == 0x1234u32.to_le_bytes()));
     }
@@ -265,7 +268,7 @@ mod tests {
         let stripped_all = strip_all_metadata(&jpeg).unwrap();
         let source_stripped = strip_gps_metadata(&jpeg).unwrap();
 
-        let grafted = rewrite_exif_metadata(&stripped_all, &source_stripped).unwrap();
+        let grafted = rewrite_exif_metadata(&stripped_all, &source_stripped, false).unwrap();
 
         assert!(grafted.windows(2).any(|w| w == [0xFF, 0xE1]));
         assert!(!grafted.windows(4).any(|w| w == 0x1234u32.to_le_bytes()));

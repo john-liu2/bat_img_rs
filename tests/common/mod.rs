@@ -66,7 +66,7 @@ pub fn create_test_heic(dir: &TempDir, name: &str) -> Option<PathBuf> {
     let path = dir.path().join(name);
     let img =
         image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
-    if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
+    if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None, None).is_err() {
         // Skip if encoding fails (libheif not installed)
         return None;
     }
