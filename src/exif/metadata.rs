@@ -9,6 +9,8 @@ use crate::exif::heic::{
     extract_heic_exif_raw, replace_heic_exif_payload, strip_all_heic_metadata,
 };
 use anyhow::{Context, Result};
+use exif_lib::{Reader, experimental::Writer};
+use std::io::Cursor;
 use std::path::Path;
 
 /// Fast byte‑level GPS stripping across all supported image formats.
@@ -99,7 +101,7 @@ fn reset_orientation_in_tiff(tiff: &mut [u8]) {
     }
 }
 
-/// Write GPS‑stripped EXIF from `source_stripped` into an on‑disk encoded output file.
+/// Write GPS‑stripped EXIF from `source_stripped` into an encoded output file.
 pub fn write_exif_file(
     output_path: &Path,
     source_stripped: &[u8],
@@ -118,7 +120,14 @@ pub fn rewrite_exif_metadata(
     source_stripped: &[u8],
     is_grayscale: bool,
 ) -> Result<Vec<u8>> {
-    let Some(mut exif_tiff) = extract_exif_tiff(source_stripped) else {
+    // A raw TIFF is already the EXIF blob — do not route it through
+    // `extract_exif_tiff`, which only understands container formats
+    // (JPEG APP1 / PNG eXIf / WebP EXIF / HEIC item).
+    let mut exif_tiff = if is_tiff(source_stripped) {
+        source_stripped.to_vec()
+    } else if let Some(t) = extract_exif_tiff(source_stripped) {
+        t
+    } else {
         return Ok(output.to_vec());
     };
     reset_orientation_in_tiff(&mut exif_tiff);
@@ -133,10 +142,243 @@ pub fn rewrite_exif_metadata(
     } else if is_webp(output) {
         inject_exif_into_webp(output, &exif_tiff)
     } else if is_tiff(output) {
-        Ok(exif_tiff)
+        inject_exif_into_tiff(output, &exif_tiff)
     } else {
         Ok(output.to_vec())
     }
+}
+
+/// Grafts EXIF and metadata tags from the source TIFF into an encoded TIFF
+pub fn inject_exif_into_tiff(output: &[u8], exif_tiff: &[u8]) -> Result<Vec<u8>> {
+    let mut result = output.to_vec();
+    if result.len() < 8 {
+        return Ok(result);
+    }
+    let le = match &result[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return Ok(result),
+    };
+
+    let exif_le = match &exif_tiff[0..2] {
+        b"II" => true,
+        b"MM" => false,
+        _ => return Ok(result),
+    };
+    let exif_tiff = if le != exif_le {
+        reencode_exif_tiff(exif_tiff, le)?
+    } else {
+        exif_tiff.to_vec()
+    };
+
+    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
+        b.get(o..o + 2).map(|s| {
+            if le {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
+        b.get(o..o + 4).map(|s| {
+            if le {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
+        if let Some(slice) = b.get_mut(o..o + 2) {
+            slice.copy_from_slice(&(if le { v.to_le_bytes() } else { v.to_be_bytes() }));
+        }
+    };
+    let write_u32 = |b: &mut [u8], o: usize, v: u32| {
+        if let Some(slice) = b.get_mut(o..o + 4) {
+            slice.copy_from_slice(&(if le { v.to_le_bytes() } else { v.to_be_bytes() }));
+        }
+    };
+
+    let old_ifd0_offset = match read_u32(&result, 4) {
+        Some(o) => o as usize,
+        None => return Ok(result),
+    };
+    let old_count = match read_u16(&result, old_ifd0_offset) {
+        Some(c) => c as usize,
+        None => return Ok(result),
+    };
+
+    let mut output_tags = Vec::new();
+    let mut entries = Vec::new();
+    for i in 0..old_count {
+        let entry_start = old_ifd0_offset + 2 + i * 12;
+        if let Some(slice) = result.get(entry_start..entry_start + 12) {
+            let tag = read_u16(slice, 0).unwrap_or(0);
+            output_tags.push(tag);
+            entries.push(slice.to_vec());
+        }
+    }
+    let next_ifd = read_u32(&result, old_ifd0_offset + 2 + old_count * 12).unwrap_or(0);
+
+    // Pull over any tags from the source that aren't already in the destination IFD0
+    let mut tags_to_add = Vec::new();
+    if let Some(exif_ifd0) = read_u32(&exif_tiff, 4)
+        && let Some(count) = read_u16(&exif_tiff, exif_ifd0 as usize)
+    {
+        for i in 0..count {
+            let entry_start = exif_ifd0 as usize + 2 + i as usize * 12;
+            if let Some(slice) = exif_tiff.get(entry_start..entry_start + 12) {
+                let tag = read_u16(slice, 0).unwrap_or(0);
+                if !output_tags.contains(&tag) {
+                    tags_to_add.push(slice.to_vec());
+                }
+            }
+        }
+    }
+
+    if tags_to_add.is_empty() {
+        return Ok(result);
+    }
+
+    let final_entry_count = entries.len() + tags_to_add.len();
+    let new_ifd0_size = 2 + final_entry_count * 12 + 4;
+    let delta = (result.len() + new_ifd0_size) as u32;
+
+    for mut entry in tags_to_add {
+        let typ = read_u16(&entry, 2).unwrap_or(0);
+        let cnt = read_u32(&entry, 4).unwrap_or(0);
+        let size = match typ {
+            1 | 2 | 6 | 7 => 1,
+            3 | 8 => 2,
+            4 | 9 | 11 => 4,
+            5 | 10 | 12 => 8,
+            _ => 0,
+        };
+
+        let total_size = cnt * size;
+        let tag = read_u16(&entry, 0).unwrap_or(0);
+
+        if (total_size > 4 || tag == 0x8769 || tag == 0x8825 || tag == 0x014A)
+            && let Some(val_offset) = read_u32(&entry, 8)
+        {
+            write_u32(&mut entry, 8, val_offset + delta);
+        }
+        entries.push(entry);
+    }
+
+    entries.sort_by_key(|e| read_u16(e, 0).unwrap_or(0));
+
+    let new_ifd0_offset = result.len() as u32;
+    write_u32(&mut result, 4, new_ifd0_offset);
+
+    let mut count_buf = vec![0; 2];
+    write_u16(&mut count_buf, 0, entries.len() as u16);
+    result.extend_from_slice(&count_buf);
+
+    for e in entries {
+        result.extend_from_slice(&e);
+    }
+
+    let mut next_ifd_buf = vec![0; 4];
+    write_u32(&mut next_ifd_buf, 0, next_ifd);
+    result.extend_from_slice(&next_ifd_buf);
+
+    // Apply delta shifts uniformly throughout the appended EXIF source
+    let mut shifted_exif = exif_tiff.to_vec();
+    let mut visited = Vec::new();
+
+    if let Some(ifd0) = read_u32(&shifted_exif, 4) {
+        let mut to_visit = vec![ifd0];
+        while let Some(ifd) = to_visit.pop() {
+            if ifd == 0 || visited.contains(&ifd) {
+                continue;
+            }
+            visited.push(ifd);
+
+            let offset = ifd as usize;
+            if let Some(count) = read_u16(&shifted_exif, offset) {
+                for i in 0..(count as usize) {
+                    let entry = offset + 2 + i * 12;
+                    let tag = read_u16(&shifted_exif, entry).unwrap_or(0);
+                    let typ = read_u16(&shifted_exif, entry + 2).unwrap_or(0);
+                    let cnt = read_u32(&shifted_exif, entry + 4).unwrap_or(0);
+
+                    let size = match typ {
+                        1 | 2 | 6 | 7 => 1,
+                        3 | 8 => 2,
+                        4 | 9 | 11 => 4,
+                        5 | 10 | 12 => 8,
+                        _ => 0,
+                    };
+                    let total = cnt * size;
+
+                    if total > 4
+                        && let Some(val_offset) = read_u32(&shifted_exif, entry + 8)
+                    {
+                        write_u32(&mut shifted_exif, entry + 8, val_offset + delta);
+                    }
+
+                    if tag == 0x8769 || tag == 0x8825 || tag == 0x014A {
+                        if total <= 4 {
+                            if let Some(sub_ifd) = read_u32(&shifted_exif, entry + 8) {
+                                to_visit.push(sub_ifd);
+                                write_u32(&mut shifted_exif, entry + 8, sub_ifd + delta);
+                            }
+                        } else {
+                            if let Some(shifted_val) = read_u32(&shifted_exif, entry + 8) {
+                                let orig = shifted_val.saturating_sub(delta);
+                                for j in 0..(cnt as usize) {
+                                    if let Some(sub) =
+                                        read_u32(&shifted_exif, orig as usize + j * 4)
+                                    {
+                                        to_visit.push(sub);
+                                        write_u32(
+                                            &mut shifted_exif,
+                                            orig as usize + j * 4,
+                                            sub + delta,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let next_ptr = offset + 2 + (count as usize) * 12;
+                if let Some(next_ifd) = read_u32(&shifted_exif, next_ptr)
+                    && next_ifd > 0
+                {
+                    to_visit.push(next_ifd);
+                    write_u32(&mut shifted_exif, next_ptr, next_ifd + delta);
+                }
+            }
+        }
+    }
+
+    result.extend_from_slice(&shifted_exif);
+    Ok(result)
+}
+
+/// Re-serialize a TIFF EXIF block to the requested byte order.
+fn reencode_exif_tiff(tiff: &[u8], little_endian: bool) -> Result<Vec<u8>> {
+    let mut reader = Reader::new();
+    reader.continue_on_error(true);
+    let exif = reader
+        .read_raw(tiff.to_vec())
+        .or_else(|error| error.distill_partial_result(|_| {}))
+        .with_context(|| "Failed to parse EXIF TIFF for endianness conversion")?;
+
+    let mut writer = Writer::new();
+    for field in exif.fields() {
+        writer.push_field(field);
+    }
+
+    let mut buf = Cursor::new(Vec::new());
+    writer
+        .write(&mut buf, little_endian)
+        .with_context(|| "Failed to re-encode EXIF TIFF")?;
+    Ok(buf.into_inner())
 }
 
 /// Sets the EXIF ColorSpace tag (0xA001) in the Exif sub-IFD to Uncalibrated (0xFFFF).

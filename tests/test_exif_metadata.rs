@@ -10,11 +10,106 @@ mod tests {
         webp_with_exif_chunk,
     };
     use bat_img_rs::exif::{
-        extract_exif_tiff, is_png, is_tiff, parse_exif_bytes, read_exif, rewrite_exif_metadata,
-        strip_all_metadata, strip_gps_from_tiff, strip_gps_metadata,
+        extract_exif_tiff, inject_exif_into_tiff, is_png, is_tiff, parse_exif_bytes, read_exif,
+        rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff, strip_gps_metadata,
     };
     use image::RgbImage;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_inject_exif_too_small() {
+        let small = b"II*";
+        let valid = b"II\x2A\x00\x08\x00\x00\x00\x00\x00\x00\x00";
+
+        let result = inject_exif_into_tiff(small, valid).unwrap();
+
+        // Output file < 8 bytes should safely abort and return unmodified
+        assert_eq!(result, small);
+    }
+
+    #[test]
+    fn test_inject_exif_endianness_mismatch() {
+        // Little-Endian output TIFF
+        let le_tiff = b"II\x2A\x00\x08\x00\x00\x00\x00\x00\x00\x00";
+        // Big-Endian EXIF source
+        let be_tiff = build_tiff_with_gps(0x1234);
+
+        let result = inject_exif_into_tiff(le_tiff, &be_tiff).unwrap();
+
+        assert!(result.len() > le_tiff.len());
+        let info = parse_exif_bytes(&result).unwrap();
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+    }
+
+    #[test]
+    fn test_inject_exif_merges_unique_tags() {
+        // Construct a basic Little-Endian TIFF with 1 tag (ImageWidth 0x0100)
+        let dest = vec![
+            0x49, 0x49, 0x2A, 0x00, // "II", 42
+            0x08, 0x00, 0x00, 0x00, // IFD0 at offset 8
+            0x01, 0x00, // Count: 1 entry
+            0x00, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+            0x00, // Tag 0x0100, Type u32, Count 1, Value 8
+            0x00, 0x00, 0x00, 0x00, // Next IFD = 0
+        ];
+
+        // Construct a source Little-Endian TIFF with 2 tags (ImageWidth 0x0100, ImageLength 0x0101)
+        let source = vec![
+            0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x02, 0x00, // Count: 2 entries
+            0x00, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+            0x00, // Tag 0x0100
+            0x01, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+            0x00, // Tag 0x0101
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let grafted = inject_exif_into_tiff(&dest, &source).unwrap();
+
+        // Output should be strictly larger since we appended the new IFD block and the missing tag (0x0101)
+        assert!(grafted.len() > dest.len());
+
+        // New IFD0 is appended exactly at the end of the original destination file size
+        let new_ifd_offset =
+            u32::from_le_bytes([grafted[4], grafted[5], grafted[6], grafted[7]]) as usize;
+        assert_eq!(new_ifd_offset, dest.len());
+
+        // Verify the newly minted IFD0 now correctly holds 2 entries (ImageWidth + ImageLength)
+        let count = u16::from_le_bytes([grafted[new_ifd_offset], grafted[new_ifd_offset + 1]]);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_rewrite_exif_metadata_for_tiff() {
+        let tiff = build_tiff_with_gps(0x1234);
+
+        // Simulates encoding step: create a bare Big-Endian ("MM") TIFF with ONLY structural tags.
+        // build_tiff_with_gps produces a Big-Endian TIFF, so we must mock a Big-Endian re-encoded
+        // TIFF to pass the endianness mismatch guard in inject_exif_into_tiff.
+        let stripped_all = vec![
+            0x4D, 0x4D, 0x00, 0x2A, // "MM\0*"
+            0x00, 0x00, 0x00, 0x08, // IFD0 offset = 8
+            0x00, 0x02, // Count = 2 entries
+            // Tag 0x0100 (ImageWidth), Type 4 (u32), Count 1, Value 8
+            0x01, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08,
+            // Tag 0x0101 (ImageLength), Type 4 (u32), Count 1, Value 8
+            0x01, 0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00,
+            0x00, 0x00, // Next IFD = 0
+        ];
+
+        let source_stripped = strip_gps_metadata(&tiff).unwrap();
+
+        let grafted = rewrite_exif_metadata(&stripped_all, &source_stripped, false).unwrap();
+
+        assert!(is_tiff(&grafted));
+        let info = parse_exif_bytes(&grafted).unwrap();
+
+        // The Make tag from the source should now be successfully grafted
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+        assert!(!info.gps_present);
+
+        // The output should be strictly larger since we appended the missing metadata
+        assert!(grafted.len() > stripped_all.len());
+    }
 
     #[test]
     fn read_exif_succeeds_after_strip_gps() {

@@ -202,6 +202,60 @@ pub fn jpeg_with_exif(tiff: &[u8]) -> Vec<u8> {
     jpeg
 }
 
+/// Build a little-endian TIFF EXIF block with Make metadata (no GPS).
+#[allow(dead_code)]
+pub fn build_tiff_with_make_le() -> Vec<u8> {
+    let mut writer = exif::experimental::Writer::new();
+    let make_field = exif::Field {
+        tag: exif::Tag::Make,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![b"Apple".to_vec()]),
+    };
+    writer.push_field(&make_field);
+    let model_field = exif::Field {
+        tag: exif::Tag::Model,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![b"iPhone Test".to_vec()]),
+    };
+    writer.push_field(&model_field);
+
+    let mut buf = std::io::Cursor::new(Vec::new());
+    writer.write(&mut buf, true).unwrap();
+    buf.into_inner()
+}
+
+/// Save a TIFF image and graft big-endian EXIF metadata into its IFD structure.
+#[allow(dead_code)]
+pub fn save_tiff_with_exif_be(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
+    use bat_img_rs::exif::rewrite_exif_metadata;
+
+    let path = dir.path().join(name);
+    img.save_with_format(&path, image::ImageFormat::Tiff)
+        .unwrap();
+
+    let encoded = std::fs::read(&path).unwrap();
+    let exif = build_tiff_with_gps(0x1234);
+    let grafted = rewrite_exif_metadata(&encoded, &exif, false).unwrap();
+    std::fs::write(&path, grafted).unwrap();
+    path
+}
+
+/// Save a TIFF image and graft EXIF metadata into its IFD structure.
+#[allow(dead_code)]
+pub fn save_tiff_with_exif(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
+    use bat_img_rs::exif::rewrite_exif_metadata;
+
+    let path = dir.path().join(name);
+    img.save_with_format(&path, image::ImageFormat::Tiff)
+        .unwrap();
+
+    let encoded = std::fs::read(&path).unwrap();
+    let exif = build_tiff_with_make_le();
+    let grafted = rewrite_exif_metadata(&encoded, &exif, false).unwrap();
+    std::fs::write(&path, grafted).unwrap();
+    path
+}
+
 /// Build a TIFF with a GPS IFD pointer (tag 0x8825) set to a non-zero offset.
 #[allow(dead_code)]
 pub fn build_tiff_with_gps(_seed: u32) -> Vec<u8> {

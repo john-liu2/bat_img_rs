@@ -17,7 +17,7 @@ pub use heic::{extract_heic_exif_raw, replace_heic_exif_payload, tiff_from_heic_
 pub use icc::get_icc_profile_name;
 pub use image_details::{ImageDetails, get_image_details};
 pub use metadata::{
-    rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff, strip_gps_metadata,
-    write_exif_file,
+    inject_exif_into_tiff, rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff,
+    strip_gps_metadata, write_exif_file,
 };
 pub use parser::{ExifInfo, parse_exif_bytes, read_exif, read_orientation};

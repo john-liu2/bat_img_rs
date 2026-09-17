@@ -4,9 +4,11 @@ mod common;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{save_jpeg, save_png, solid_rgb};
+    use super::common::{
+        save_jpeg, save_png, save_tiff_with_exif, save_tiff_with_exif_be, solid_rgb,
+    };
 
-    use bat_img_rs::exif::{extract_exif_tiff, read_orientation, strip_gps_metadata};
+    use bat_img_rs::exif::{extract_exif_tiff, read_exif, read_orientation, strip_gps_metadata};
     use bat_img_rs::pipeline::{Pipeline, ResizeSpec};
     use bat_img_rs::processor::ProcessingContext;
     use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
@@ -329,6 +331,46 @@ mod tests {
     }
 
     // ── Grayscale ─────────────────────────────────────────────────────────────
+    #[test]
+    fn grayscale_tiff_preserves_exif_big_endian_source() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_tiff_with_exif_be(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.tiff");
+        let exif_before = read_exif(&src).expect("source TIFF should contain EXIF");
+        assert_eq!(exif_before.make.as_deref(), Some("Apple"));
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+        let exif_after = read_exif(&output).expect("grayscale TIFF should preserve EXIF");
+        assert_eq!(exif_after.make.as_deref(), Some("Apple"));
+        assert_eq!(image::open(&output).unwrap().color(), image::ColorType::L8);
+    }
+
+    #[test]
+    fn grayscale_tiff_preserves_exif() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_tiff_with_exif(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.tiff");
+        let exif_before = read_exif(&src).expect("source TIFF should contain EXIF");
+        assert_eq!(exif_before.make.as_deref(), Some("Apple"));
+        assert_eq!(exif_before.model.as_deref(), Some("iPhone Test"));
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+
+        let exif_after = read_exif(&output).expect("grayscale TIFF should preserve EXIF");
+        assert_eq!(exif_after.make.as_deref(), Some("Apple"));
+        assert_eq!(exif_after.model.as_deref(), Some("iPhone Test"));
+    }
+
     #[test]
     fn grayscale_tiff_output_is_grayscale() {
         let tmp = TempDir::new().unwrap();
