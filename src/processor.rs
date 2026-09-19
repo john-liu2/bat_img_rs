@@ -1,3 +1,6 @@
+// processor.rs: process images according to the pipeline spec
+// Copyright © 2026 - Present, John Liu
+
 use crate::exif;
 use crate::heic;
 use crate::pipeline::Pipeline;
@@ -131,11 +134,6 @@ impl ProcessingContext {
             img = apply_orientation(img, exif_orientation);
         }
 
-        // ── Grayscale ────────────────────────────────────────────────────────
-        if p.grayscale {
-            img = DynamicImage::ImageLuma8(img.to_luma8());
-        }
-
         // ── Resize ───────────────────────────────────────────────────────────
         if let Some(ref spec) = p.resize {
             let (orig_w, orig_h) = img.dimensions();
@@ -189,6 +187,11 @@ impl ProcessingContext {
             img = add_border(img, border_px, color);
         }
 
+        // ── Grayscale ────────────────────────────────────────────────────────
+        if p.grayscale {
+            img = DynamicImage::ImageLuma8(img.to_luma8());
+        }
+
         // ── Encode & save ────────────────────────────────────────────────────
         self.save_image(
             &img,
@@ -199,7 +202,7 @@ impl ProcessingContext {
 
         // Re-encoding for non-HEIC
         if !is_heic && let Some(ref exif_bytes) = processed_exif {
-            exif::write_exif_file(&output_path, exif_bytes)?;
+            exif::write_exif_file(&output_path, exif_bytes, p.grayscale)?;
         }
         Ok(output_path)
     }
@@ -336,23 +339,37 @@ impl ProcessingContext {
                 let compression = heic_meta
                     .map(|m| m.compression)
                     .unwrap_or(CompressionFormat::Hevc);
-                heic::encode(img, path, compression, p.quality, exif)
+                // Pass `None` as the final argument for the ICC profile
+                heic::encode(img, path, compression, p.quality, exif, None)
                     .with_context(|| format!("HEIC encode failed for {}", path.display()))?;
             }
             "jpg" | "jpeg" => {
-                let rgb = img.to_rgb8();
                 let mut out = std::fs::File::create(path)
                     .with_context(|| format!("Cannot create {}", path.display()))?;
                 let mut encoder =
                     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
-                encoder
-                    .encode(
-                        rgb.as_raw(),
-                        rgb.width(),
-                        rgb.height(),
-                        image::ExtendedColorType::Rgb8,
-                    )
-                    .with_context(|| format!("JPEG encode failed for {}", path.display()))?;
+
+                if img.color().has_color() {
+                    let rgb = img.to_rgb8();
+                    encoder
+                        .encode(
+                            rgb.as_raw(),
+                            rgb.width(),
+                            rgb.height(),
+                            image::ExtendedColorType::Rgb8,
+                        )
+                        .with_context(|| format!("JPEG encode failed for {}", path.display()))?;
+                } else {
+                    let luma = img.to_luma8();
+                    encoder
+                        .encode(
+                            luma.as_raw(),
+                            luma.width(),
+                            luma.height(),
+                            image::ExtendedColorType::L8,
+                        )
+                        .with_context(|| format!("JPEG encode failed for {}", path.display()))?;
+                }
             }
             "webp" => {
                 img.save_with_format(path, image::ImageFormat::WebP)

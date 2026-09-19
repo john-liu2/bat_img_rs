@@ -1,4 +1,6 @@
-/// Test bat_img_rs::heic
+// Test bat_img_rs::heic
+// Copyright © 2026 - Present, John Liu
+
 mod common;
 
 #[cfg(test)]
@@ -11,7 +13,7 @@ mod tests {
         strip_gps_metadata,
     };
     use bat_img_rs::heic;
-    use image::{DynamicImage, RgbImage};
+    use image::{DynamicImage, GrayImage, RgbImage};
     use libheif_rs::CompressionFormat;
     use std::path::Path;
     use tempfile::tempdir;
@@ -30,13 +32,48 @@ mod tests {
             expected_h,
             image::Rgb([100, 150, 200]),
         ));
-        heic::encode(&img, &test_file, CompressionFormat::Hevc, Some(80), None)
-            .expect("Failed to encode HEIC for dimension test");
+        heic::encode(
+            &img,
+            &test_file,
+            CompressionFormat::Hevc,
+            Some(80),
+            None,
+            None,
+        )
+        .expect("Failed to encode HEIC for dimension test");
 
         let (decoded_img, _, _) = heic::decode(&test_file).expect("Failed to decode HEIC");
         assert_eq!(decoded_img.width(), expected_w);
         assert_eq!(decoded_img.height(), expected_h);
         assert_eq!(decoded_img.color(), image::ColorType::Rgb8);
+    }
+
+    #[test]
+    fn heic_encode_grayscale_luma8() {
+        let dir = tempdir().unwrap();
+        let test_file = dir.path().join("test_luma.heic");
+
+        let expected_w = 8;
+        let expected_h = 8;
+        let img = DynamicImage::ImageLuma8(GrayImage::from_pixel(
+            expected_w,
+            expected_h,
+            image::Luma([128]),
+        ));
+        heic::encode(
+            &img,
+            &test_file,
+            CompressionFormat::Hevc,
+            Some(80),
+            None,
+            None,
+        )
+        .expect("Failed to encode Monochrome HEIC");
+
+        let (decoded_img, _, _) =
+            heic::decode(&test_file).expect("Failed to decode Monochrome HEIC");
+        assert_eq!(decoded_img.width(), expected_w);
+        assert_eq!(decoded_img.height(), expected_h);
     }
 
     #[test]
@@ -164,7 +201,15 @@ mod tests {
         let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
         let tiff = build_tiff_with_gps(0x1234);
 
-        heic::encode(&img, &input, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
+        heic::encode(
+            &img,
+            &input,
+            CompressionFormat::Hevc,
+            Some(80),
+            Some(&tiff),
+            None,
+        )
+        .unwrap();
 
         let original = std::fs::read(&input).unwrap();
         let stripped = strip_gps_metadata(&original).unwrap();
@@ -194,7 +239,15 @@ mod tests {
         let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 8, image::Rgb([10, 20, 30])));
         let tiff = build_tiff_with_gps(0x1234);
 
-        heic::encode(&img, &input, CompressionFormat::Hevc, Some(80), Some(&tiff)).unwrap();
+        heic::encode(
+            &img,
+            &input,
+            CompressionFormat::Hevc,
+            Some(80),
+            Some(&tiff),
+            None,
+        )
+        .unwrap();
 
         let original = std::fs::read(&input).unwrap();
 

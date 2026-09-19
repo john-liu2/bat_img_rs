@@ -1,11 +1,14 @@
-/// Test bat_img_rs::processor
+// Test bat_img_rs::processor
+// Copyright © 2026 - Present, John Liu
 mod common;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{save_jpeg, save_png, solid_rgb};
+    use super::common::{
+        save_jpeg, save_png, save_tiff_with_exif, save_tiff_with_exif_be, solid_rgb,
+    };
 
-    use bat_img_rs::exif::{extract_exif_tiff, read_orientation, strip_gps_metadata};
+    use bat_img_rs::exif::{extract_exif_tiff, read_exif, read_orientation, strip_gps_metadata};
     use bat_img_rs::pipeline::{Pipeline, ResizeSpec};
     use bat_img_rs::processor::ProcessingContext;
     use image::{DynamicImage, GenericImageView, RgbImage, Rgba};
@@ -48,6 +51,42 @@ mod tests {
             pipeline: Arc::new(pipeline),
         };
         ctx.process().expect("processing failed")
+    }
+
+    /// Regression test: `--grayscale` on a TIFF source must produce a
+    /// decodable 8-bit grayscale TIFF whose EXIF is preserved — and it must
+    /// not balloon by appending the source image’s pixel strips.
+    #[test]
+    fn grayscale_tiff_output_is_small_and_preserves_exif() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_tiff_with_exif(&solid_rgb(120, 120, 0, 200, 0), &tmp, "src.tiff");
+        let src_size = std::fs::metadata(&src).unwrap().len();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+        let output = run(src, p);
+
+        let out_size = std::fs::metadata(&output).unwrap().len();
+
+        // Decodable, true 8-bit grayscale.
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+        assert_eq!(img.dimensions(), (120, 120));
+
+        // EXIF preserved across the grayscale conversion.
+        let info = bat_img_rs::exif::read_exif(&output).expect("EXIF preserved");
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+        assert_eq!(info.model.as_deref(), Some("iPhone Test"));
+
+        // The output should not exceed the source by a meaningful amount
+        // (before the fix it roughly doubled because the source was
+        // appended verbatim).
+        assert!(
+            out_size < src_size + 4096,
+            "grayscale TIFF output ({out_size} B) unexpectedly bloated vs source ({src_size} B)"
+        );
     }
 
     // ── Fast-Path Metadata Tests ──────────────────────────────────────────────
@@ -329,21 +368,125 @@ mod tests {
 
     // ── Grayscale ─────────────────────────────────────────────────────────────
     #[test]
-    fn grayscale_output_has_equal_rgb_channels() {
+    fn grayscale_tiff_preserves_exif_big_endian_source() {
         let tmp = TempDir::new().unwrap();
         let out = TempDir::new().unwrap();
-        // Vivid green source — after grayscale R=G=B
-        let src = save_png(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.png");
+
+        let src = save_tiff_with_exif_be(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.tiff");
+        let exif_before = read_exif(&src).expect("source TIFF should contain EXIF");
+        assert_eq!(exif_before.make.as_deref(), Some("Apple"));
 
         let mut p = base_pipeline(out.path().to_path_buf());
         p.grayscale = true;
 
         let output = run(src, p);
-        let img = image::open(&output).unwrap().to_rgb8();
-        let p0 = img.get_pixel(10, 10);
+        let exif_after = read_exif(&output).expect("grayscale TIFF should preserve EXIF");
+        assert_eq!(exif_after.make.as_deref(), Some("Apple"));
+        assert_eq!(image::open(&output).unwrap().color(), image::ColorType::L8);
+    }
+
+    #[test]
+    fn grayscale_tiff_preserves_exif() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_tiff_with_exif(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.tiff");
+        let exif_before = read_exif(&src).expect("source TIFF should contain EXIF");
+        assert_eq!(exif_before.make.as_deref(), Some("Apple"));
+        assert_eq!(exif_before.model.as_deref(), Some("iPhone Test"));
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+
+        let exif_after = read_exif(&output).expect("grayscale TIFF should preserve EXIF");
+        assert_eq!(exif_after.make.as_deref(), Some("Apple"));
+        assert_eq!(exif_after.model.as_deref(), Some("iPhone Test"));
+    }
+
+    #[test]
+    fn grayscale_tiff_output_is_grayscale() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        // Create a vivid green color TIFF image
+        let src = tmp.path().join("src.tiff");
+        solid_rgb(20, 20, 0, 200, 0).save(&src).unwrap();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+
+        // The output must be a true grayscale image
+        assert_eq!(img.color(), image::ColorType::L8);
+    }
+
+    #[test]
+    fn tiff_preserves_16bit_luma() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        // Create a 16-bit grayscale TIFF
+        let src = tmp.path().join("src16.tiff");
+        let img16 = image::ImageBuffer::<image::Luma<u16>, Vec<u16>>::from_pixel(
+            20,
+            20,
+            image::Luma([30000]),
+        );
+        image::DynamicImage::ImageLuma16(img16).save(&src).unwrap();
+
+        // Run pipeline with no structural changes (grayscale = false)
+        let p = base_pipeline(out.path().to_path_buf());
+        let output = run(src, p);
+        let img = image::open(&output).unwrap();
+
+        // Must remain 16-bit Luma, not truncated to RGB8
+        assert_eq!(img.color(), image::ColorType::L16);
+    }
+
+    #[test]
+    fn grayscale_output_has_equal_rgb_channels() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+        // Vivid green source
+        let src = save_png(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.png");
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+        // Test that structural changes don't overwrite grayscale
+        p.border_px = Some(5);
+        p.border_rgba = Some(Rgba([255, 0, 0, 255]));
+
+        let output = run(src, p);
+
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+
+        let img_rgb = img.to_rgb8();
+        let p0 = img_rgb.get_pixel(10, 10);
         // All three channels equal after grayscale (luma conversion)
         assert_eq!(p0[0], p0[1]);
         assert_eq!(p0[1], p0[2]);
+    }
+
+    #[test]
+    fn grayscale_jpeg_saves_as_luma8() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+        let src = save_jpeg(&solid_rgb(20, 20, 0, 200, 0), &tmp, "src.jpg");
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+
+        let output = run(src, p);
+
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
     }
 
     // ── Format conversion ─────────────────────────────────────────────────────

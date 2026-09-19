@@ -66,7 +66,7 @@ pub fn create_test_heic(dir: &TempDir, name: &str) -> Option<PathBuf> {
     let path = dir.path().join(name);
     let img =
         image::DynamicImage::ImageRgb8(RgbImage::from_pixel(100, 100, image::Rgb([0, 0, 255])));
-    if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None).is_err() {
+    if heic::encode(&img, &path, CompressionFormat::Hevc, Some(80), None, None).is_err() {
         // Skip if encoding fails (libheif not installed)
         return None;
     }
@@ -202,6 +202,60 @@ pub fn jpeg_with_exif(tiff: &[u8]) -> Vec<u8> {
     jpeg
 }
 
+/// Build a little-endian TIFF EXIF block with Make metadata (no GPS).
+#[allow(dead_code)]
+pub fn build_tiff_with_make_le() -> Vec<u8> {
+    let mut writer = exif::experimental::Writer::new();
+    let make_field = exif::Field {
+        tag: exif::Tag::Make,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![b"Apple".to_vec()]),
+    };
+    writer.push_field(&make_field);
+    let model_field = exif::Field {
+        tag: exif::Tag::Model,
+        ifd_num: exif::In::PRIMARY,
+        value: exif::Value::Ascii(vec![b"iPhone Test".to_vec()]),
+    };
+    writer.push_field(&model_field);
+
+    let mut buf = std::io::Cursor::new(Vec::new());
+    writer.write(&mut buf, true).unwrap();
+    buf.into_inner()
+}
+
+/// Save a TIFF image and graft big-endian EXIF metadata into its IFD structure.
+#[allow(dead_code)]
+pub fn save_tiff_with_exif_be(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
+    use bat_img_rs::exif::rewrite_exif_metadata;
+
+    let path = dir.path().join(name);
+    img.save_with_format(&path, image::ImageFormat::Tiff)
+        .unwrap();
+
+    let encoded = std::fs::read(&path).unwrap();
+    let exif = build_tiff_with_gps(0x1234);
+    let grafted = rewrite_exif_metadata(&encoded, &exif, false).unwrap();
+    std::fs::write(&path, grafted).unwrap();
+    path
+}
+
+/// Save a TIFF image and graft EXIF metadata into its IFD structure.
+#[allow(dead_code)]
+pub fn save_tiff_with_exif(img: &DynamicImage, dir: &TempDir, name: &str) -> PathBuf {
+    use bat_img_rs::exif::rewrite_exif_metadata;
+
+    let path = dir.path().join(name);
+    img.save_with_format(&path, image::ImageFormat::Tiff)
+        .unwrap();
+
+    let encoded = std::fs::read(&path).unwrap();
+    let exif = build_tiff_with_make_le();
+    let grafted = rewrite_exif_metadata(&encoded, &exif, false).unwrap();
+    std::fs::write(&path, grafted).unwrap();
+    path
+}
+
 /// Build a TIFF with a GPS IFD pointer (tag 0x8825) set to a non-zero offset.
 #[allow(dead_code)]
 pub fn build_tiff_with_gps(_seed: u32) -> Vec<u8> {
@@ -230,6 +284,96 @@ pub fn build_tiff_with_gps(_seed: u32) -> Vec<u8> {
     let mut buf = std::io::Cursor::new(Vec::new());
     writer.write(&mut buf, false).unwrap();
     buf.into_inner()
+}
+
+/// Minimal little‑endian TIFF with an empty IFD0.
+#[allow(dead_code)]
+pub fn build_minimal_tiff() -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend_from_slice(b"II\x2A\x00");
+    t.extend_from_slice(&8u32.to_le_bytes()); // IFD0 at 8
+    t.extend_from_slice(&0u16.to_le_bytes()); // 0 entries
+    t.extend_from_slice(&0u32.to_le_bytes()); // next IFD
+    t
+}
+
+/// TIFF with an Exif sub‑IFD containing a ColorSpace tag of the given type/value.
+#[allow(dead_code)]
+pub fn build_tiff_with_exif_color_space(color_space_type: u16, color_space_value: u32) -> Vec<u8> {
+    let mut t = Vec::new();
+    t.extend_from_slice(b"II\x2A\x00");
+    t.extend_from_slice(&8u32.to_le_bytes()); // IFD0 at 8
+
+    let ifd0_start = t.len();
+    t.extend_from_slice(&1u16.to_le_bytes()); // 1 entry
+    t.extend_from_slice(&0x8769u16.to_le_bytes()); // ExifOffset
+    t.extend_from_slice(&4u16.to_le_bytes()); // LONG
+    t.extend_from_slice(&1u32.to_le_bytes());
+    let exif_ifd_offset = ifd0_start + 2 + 12 + 4;
+    t.extend_from_slice(&(exif_ifd_offset as u32).to_le_bytes());
+    t.extend_from_slice(&0u32.to_le_bytes()); // next IFD
+
+    // Exif sub‑IFD
+    t.extend_from_slice(&1u16.to_le_bytes());
+    t.extend_from_slice(&0xA001u16.to_le_bytes()); // ColorSpace
+    t.extend_from_slice(&color_space_type.to_le_bytes());
+    t.extend_from_slice(&1u32.to_le_bytes());
+    t.extend_from_slice(&color_space_value.to_le_bytes());
+    t.extend_from_slice(&0u32.to_le_bytes());
+    t
+}
+/// Extract the ColorSpace value from a TIFF (or None if absent).
+#[allow(dead_code)]
+pub fn find_color_space_value(tiff: &[u8]) -> Option<u32> {
+    if tiff.len() < 8 {
+        return None;
+    }
+    let le = &tiff[0..2] == b"II";
+    let ru16 = |o: usize| {
+        tiff.get(o..o + 2).map(|s| {
+            if le {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    };
+    let ru32 = |o: usize| {
+        tiff.get(o..o + 4).map(|s| {
+            if le {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    };
+    let ifd0 = ru32(4)? as usize;
+    let cnt = ru16(ifd0)? as usize;
+    for i in 0..cnt {
+        let e = ifd0 + 2 + i * 12;
+        if ru16(e) == Some(0x8769) {
+            let exif = ru32(e + 8)? as usize;
+            let ecnt = ru16(exif)? as usize;
+            for j in 0..ecnt {
+                let ee = exif + 2 + j * 12;
+                if ru16(ee) == Some(0xA001) {
+                    let typ = ru16(ee + 2)?;
+                    let c = ru32(ee + 4)? as usize;
+                    let total = match typ {
+                        3 => c * 2,
+                        4 => c * 4,
+                        _ => return None,
+                    };
+                    return if total <= 4 {
+                        ru32(ee + 8)
+                    } else {
+                        ru32(ru32(ee + 8)? as usize)
+                    };
+                }
+            }
+        }
+    }
+    None
 }
 
 // ── test_processor.rs Helpers ───────────────────────────────────────────────────────────────

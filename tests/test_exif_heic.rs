@@ -55,6 +55,7 @@ mod tests {
             CompressionFormat::Hevc,
             Some(80),
             Some(&tiff),
+            None,
         )
         .unwrap();
 

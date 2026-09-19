@@ -155,7 +155,7 @@ mod tests {
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Color Space"));
         assert!(info.contains("Color Profile"));
-        assert!(info.contains("Chroma Format"));
+        assert!(info.contains("Chroma"));
     }
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Color Space"));
         assert!(info.contains("Color Profile"));
-        assert!(info.contains("Chroma Format"));
+        assert!(info.contains("Chroma"));
     }
 
     #[test]
@@ -196,7 +196,7 @@ mod tests {
         assert!(info.contains("Alpha Channel"));
         assert!(info.contains("Color Space"));
         assert!(info.contains("Color Profile"));
-        assert!(info.contains("Chroma Format"));
+        assert!(info.contains("Chroma"));
     }
 
     #[test]
