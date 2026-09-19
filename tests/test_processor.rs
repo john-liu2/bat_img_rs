@@ -53,6 +53,42 @@ mod tests {
         ctx.process().expect("processing failed")
     }
 
+    /// Regression test: `--grayscale` on a TIFF source must produce a
+    /// decodable 8-bit grayscale TIFF whose EXIF is preserved — and it must
+    /// not balloon by appending the source image’s pixel strips.
+    #[test]
+    fn grayscale_tiff_output_is_small_and_preserves_exif() {
+        let tmp = TempDir::new().unwrap();
+        let out = TempDir::new().unwrap();
+
+        let src = save_tiff_with_exif(&solid_rgb(120, 120, 0, 200, 0), &tmp, "src.tiff");
+        let src_size = std::fs::metadata(&src).unwrap().len();
+
+        let mut p = base_pipeline(out.path().to_path_buf());
+        p.grayscale = true;
+        let output = run(src, p);
+
+        let out_size = std::fs::metadata(&output).unwrap().len();
+
+        // Decodable, true 8-bit grayscale.
+        let img = image::open(&output).unwrap();
+        assert_eq!(img.color(), image::ColorType::L8);
+        assert_eq!(img.dimensions(), (120, 120));
+
+        // EXIF preserved across the grayscale conversion.
+        let info = bat_img_rs::exif::read_exif(&output).expect("EXIF preserved");
+        assert_eq!(info.make.as_deref(), Some("Apple"));
+        assert_eq!(info.model.as_deref(), Some("iPhone Test"));
+
+        // The output should not exceed the source by a meaningful amount
+        // (before the fix it roughly doubled because the source was
+        // appended verbatim).
+        assert!(
+            out_size < src_size + 4096,
+            "grayscale TIFF output ({out_size} B) unexpectedly bloated vs source ({src_size} B)"
+        );
+    }
+
     // ── Fast-Path Metadata Tests ──────────────────────────────────────────────
     #[test]
     fn fast_path_strip_gps_preserves_dimensions_and_removes_gps() {
