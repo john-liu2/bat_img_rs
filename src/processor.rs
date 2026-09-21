@@ -55,8 +55,7 @@ impl ProcessingContext {
             && p.brightness.is_none()
             && p.contrast.is_none()
             && !p.sharpen
-            && !p.grayscale
-            && p.output_format.is_none();
+            && !p.grayscale;
 
         if is_metadata_only {
             let raw_bytes = fs::read(&self.input_path).with_context(|| {
@@ -212,33 +211,6 @@ impl ProcessingContext {
 
         // ── In-place mode: output = input path (same file, same format) ──────
         if p.in_place {
-            // Disallow in-place when --format changes the extension, since that
-            // would silently rename the file.  Require --output in that case.
-            if let Some(fmt) = p.output_format {
-                let src_ext = self
-                    .input_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                let dst_ext = fmt.extension();
-                // jpeg/jpg, png/png, tiff/tif, webp/webp etc. to allow in-place
-                let same = src_ext == dst_ext
-                    || (src_ext == "jpg" && dst_ext == "jpeg")
-                    || (src_ext == "jpeg" && dst_ext == "jpg")
-                    || (src_ext == "png" && dst_ext == "png")
-                    || (src_ext == "tif" && dst_ext == "tiff")
-                    || (src_ext == "tiff" && dst_ext == "tif")
-                    || (src_ext == "webp" && dst_ext == "webp");
-                if !same {
-                    anyhow::bail!(
-                        "In-place mode cannot change format from .{} to .{}. \
-                         Please specify --output <DIR>.",
-                        src_ext,
-                        dst_ext
-                    );
-                }
-            }
             return Ok(self.input_path.clone());
         }
 
@@ -253,15 +225,12 @@ impl ProcessingContext {
             .and_then(|s| s.to_str())
             .unwrap_or("image");
 
-        let ext = if let Some(fmt) = p.output_format {
-            fmt.extension().to_string()
-        } else {
-            self.input_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("jpg")
-                .to_lowercase()
-        };
+        let ext = self
+            .input_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("jpg")
+            .to_lowercase();
 
         let filename = format!("{}{}{}.{}", p.prefix, stem, p.suffix, ext);
         Ok(out_dir.join(filename))

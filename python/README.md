@@ -35,9 +35,6 @@ bat_img -i ~/Pictures/iPhone --strip-gps
 # Resize all JPEGs to 1920 px wide, save to ./web/
 bat_img -i ./photos -r 1920x0 -o ./web
 
-# Convert HEIC → WebP at quality 85, resize to 2048 px wide
-bat_img -i ./iphone_photos -r 2048x0 -f webp -q 85 -o ./web
-
 # Strip ALL metadata, sharpen — 8 threads, recurse
 bat_img -i ./raw -R --strip-all --sharpen -t 8 -o ./export
 ```
@@ -96,7 +93,6 @@ bat_img [OPTIONS] --input <INPUT>...
       --contrast <VALUE>      Contrast adjustment (-100 to +100)
       --sharpen               Apply sharpening filter
       --grayscale             Convert to grayscale
-  -f, --format <FORMAT>       Output format (defaults to same as input) [possible values: jpeg, png, webp, tiff, heic]
   -q, --quality <1-100>       JPEG/WebP output quality (1–100), required for non-HEIC output. Default is 90 if not set. HEIC file is encoded with the default encoder
       --suffix <SUFFIX>       Filename suffix appended before extension (e.g. "_edited" → photo_edited.jpg) [default: ""]
       --prefix <PREFIX>       Filename prefix prepended (e.g. "web_" → web_photo.jpg) [default: ""]
@@ -137,9 +133,6 @@ bat_img -i ./screenshots --border 20 --border-color black -o ./bordered
 # Rotate scans 90° clockwise and convert to grayscale
 bat_img -i ./scans --rotate 90 --grayscale -o ./processed
 
-# Convert HEIC → JPEG at quality 90, resize to fit 1920×1080
-bat_img -i ./iphone_photos -f jpeg -q 90 -r 1920x1080 -o ./jpegs
-
 # Dry-run — see what would happen without writing anything
 bat_img -i ./photos -r 800x600 --strip-gps --dry-run
 ```
@@ -151,7 +144,6 @@ bat_img can read and write HEIC/HEIF files natively, including:
 - Decoding HEIC photos from iPhone / iPad
 - Re-encoding back to HEIC while preserving the original codec (HEVC / AV1)
   and file size (unless `--quality` is specified)
-- Converting HEIC to any other supported format with `-f jpeg`, `-f webp`, etc.
 
 ## License
 

@@ -103,7 +103,6 @@ bat_img_rs [OPTIONS] --input <INPUT>...
       --contrast <VALUE>      Contrast adjustment (-100 to +100)
       --sharpen               Apply sharpening filter
       --grayscale             Convert to grayscale
-  -f, --format <FORMAT>       Output format (defaults to same as input) [possible values: jpeg, png, webp, tiff, heic]
   -q, --quality <1-100>       JPEG/WebP output quality (1–100), required for non-HEIC output. Default is 90 if not set. HEIC file is encoded with the default encoder
       --suffix <SUFFIX>       Filename suffix appended before extension (e.g. "_edited" → photo_edited.jpg) [default: ""]
       --prefix <PREFIX>       Filename prefix prepended (e.g. "web_" → web_photo.jpg) [default: ""]
@@ -123,10 +122,6 @@ written first and then atomically renamed over the original, so the source
 is never corrupted if encoding fails mid-write.
 
 **Constraints in in-place mode:**
-
-- `--format` cannot change the file extension (e.g. converting `.jpg → .webp`
-  in-place would silently rename the file). Specify `--output` when changing
-  formats.
 - `--prefix` and `--suffix` have no effect on the output filename since the
   original path is reused.
 
@@ -154,15 +149,6 @@ bat_img_rs -i ./raw -R --sharpen --strip-gps -t 8
 # Strip GPS and save to ./clean  (originals untouched)
 bat_img_rs -i ./photos --strip-gps -o ./clean
 
-# Resize to 1920px wide, add 10px white border, convert to WebP at quality 85
-bat_img_rs -i ./photos -r 1920x0 --border 10 --border-color white -f webp -q 85 -o ./web
-
-# Convert HEIC → JPEG at quality 90
-bat_img_rs -i ./photos/*.heic -f jpeg -q 90 -o ./jpegs
-
-# Convert HEIC → WebP at quality 85, resize to 2048px wide
-bat_img_rs -i ./heic_photos -r 2048x0 -f webp -q 85 -o ./web
-
 # Rotate 90°, flip horizontal, convert to grayscale, add _bw suffix
 bat_img_rs -i ./scans --rotate 90 --flip-h --grayscale --suffix _bw -o ./processed
 
@@ -189,7 +175,6 @@ bat_img_rs -i ./photos -r 800x600 --strip-gps --dry-run
 |---|---|
 | `bat_img_rs -i ./photos --strip-gps` | In-place: originals overwritten |
 | `bat_img_rs -i ./photos --strip-gps -o ./out` | Output to `./out/`: originals untouched |
-| `bat_img_rs -i ./photos -f webp -o ./out` | Convert to WebP in `./out/` |
 | `bat_img_rs -i ./photos -f webp` | Error: format change requires `--output` |
 
 ## Architecture

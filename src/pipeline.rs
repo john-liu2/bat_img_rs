@@ -7,7 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-use crate::cli::{Args, OutputFormat};
+use crate::cli::Args;
 use crate::error::BatImgError;
 
 /// Supported image extensions
@@ -97,7 +97,6 @@ pub struct Pipeline {
     pub sharpen: bool,
     pub grayscale: bool,
 
-    pub output_format: Option<OutputFormat>,
     /// None = preserve original (for HEIC); Some(n) = user-specified quality
     pub quality: Option<u8>,
     /// None = in-place mode (overwrite input files)
@@ -170,7 +169,6 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
         contrast: args.contrast,
         sharpen: args.sharpen,
         grayscale: args.grayscale,
-        output_format: args.format,
         quality: args.quality,
         output_dir: args.output.clone(),
         in_place,
