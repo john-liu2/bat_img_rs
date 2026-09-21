@@ -1,7 +1,9 @@
+// bat_img_rs — fast multithreaded batch image processor
+// Copyright © 2026 - Present, John Liu
+
 use clap::{ArgAction, Parser, ValueEnum};
 use std::path::PathBuf;
 
-/// bat_img_rs — fast multithreaded batch image processor
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "bat_img_rs",

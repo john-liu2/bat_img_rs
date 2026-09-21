@@ -1,4 +1,5 @@
-//! Compute detailed image properties from raw bytes.
+// Compute detailed image properties from raw bytes.
+// Copyright © 2026 - Present, John Liu
 
 use crate::exif::container::{is_jpeg, is_tiff, is_webp};
 use crate::exif::icc::{exif_color_profile_name, get_icc_profile_name};

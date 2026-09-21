@@ -1,4 +1,6 @@
 // info.rs - read image files info
+// Copyright © 2026 - Present, John Liu
+
 use crate::exif;
 use crate::heic;
 

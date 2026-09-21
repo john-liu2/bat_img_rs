@@ -1,3 +1,5 @@
+// Copyright © 2026 - Present, John Liu
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]

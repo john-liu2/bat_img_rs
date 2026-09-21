@@ -1,9 +1,7 @@
-#![allow(unused_imports)] // re‑exports are intended for external use
+// re‑exports are intended for external use
+// Copyright © 2026 - Present, John Liu
 
-//! EXIF metadata for HEIC, JPEG, PNG, TIFF, WebP
-//!
-//! GPS removal rewrites the embedded TIFF/EXIF block in-place where possible.
-//! Orientation is read from the same EXIF block across all supported containers.
+#![allow(unused_imports)]
 
 mod container;
 mod heic;
@@ -18,6 +16,6 @@ pub use icc::get_icc_profile_name;
 pub use image_details::{ImageDetails, get_image_details};
 pub use metadata::{
     inject_exif_into_tiff, rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff,
-    strip_gps_metadata, write_exif_file,
+    strip_gps_metadata, strip_tiff_metadata, write_exif_file,
 };
 pub use parser::{ExifInfo, parse_exif_bytes, read_exif, read_orientation};

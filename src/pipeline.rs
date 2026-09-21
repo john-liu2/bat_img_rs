@@ -1,3 +1,6 @@
+// Build the processing pipeline and run the parallel image processing tasks.
+// Copyright © 2026 - Present, John Liu
+
 use anyhow::{Context, Result};
 use glob::glob;
 use std::path::Path;

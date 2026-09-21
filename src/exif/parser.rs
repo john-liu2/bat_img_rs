@@ -1,4 +1,5 @@
-//! EXIF parsing using `exif_lib`.
+// EXIF parsing using `exif_lib`.
+// Copyright © 2026 - Present, John Liu
 
 use crate::exif::container::{extract_exif_tiff, read_short_tag_from_tiff};
 use crate::exif::extract_heic_exif_raw;

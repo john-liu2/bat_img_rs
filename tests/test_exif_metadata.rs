@@ -12,7 +12,7 @@ mod tests {
     use bat_img_rs::exif::{
         extract_exif_tiff, inject_exif_into_tiff, is_png, is_tiff, parse_exif_bytes, read_exif,
         rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff, strip_gps_metadata,
-        write_exif_file,
+        strip_tiff_metadata, write_exif_file,
     };
     use image::{GrayImage, ImageFormat, RgbImage};
     use tempfile::TempDir;
@@ -360,6 +360,70 @@ mod tests {
         // And the Make tag should still have been grafted.
         let info_after = parse_exif_bytes(&result).unwrap();
         assert_eq!(info_after.make.as_deref(), Some("Apple"));
+    }
+
+    #[test]
+    fn strip_tiff_metadata_removes_exif_and_preserves_tiff() {
+        let source = build_tiff_with_gps(0x1234);
+
+        let stripped = strip_tiff_metadata(&source).unwrap();
+
+        assert!(is_tiff(&stripped));
+        assert_eq!(stripped.len(), source.len());
+
+        let info = parse_exif_bytes(&stripped).unwrap();
+        assert_eq!(info.make, None);
+        assert!(!info.gps_present);
+    }
+
+    #[test]
+    fn strip_all_metadata_uses_tiff_metadata_stripper() {
+        let source = build_tiff_with_gps(0x5678);
+
+        let stripped = strip_all_metadata(&source).unwrap();
+
+        assert!(is_tiff(&stripped));
+        let info = parse_exif_bytes(&stripped).unwrap();
+        assert_eq!(info.make, None);
+        assert!(!info.gps_present);
+    }
+
+    #[test]
+    fn strip_tiff_metadata_preserves_pixels() {
+        let original =
+            image::GrayImage::from_fn(17, 11, |x, y| image::Luma([((x * 13 + y * 7) % 251) as u8]));
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.tiff");
+        original.save_with_format(&path, ImageFormat::Tiff).unwrap();
+
+        let encoded = std::fs::read(&path).unwrap();
+        let with_exif =
+            bat_img_rs::exif::inject_exif_into_tiff(&encoded, &build_tiff_with_gps(0x1234))
+                .unwrap();
+
+        let stripped = strip_tiff_metadata(&with_exif).unwrap();
+        std::fs::write(&path, stripped).unwrap();
+
+        let decoded = image::open(&path).unwrap().to_luma8();
+        assert_eq!(decoded.dimensions(), original.dimensions());
+        assert_eq!(decoded.as_raw(), original.as_raw());
+    }
+
+    #[test]
+    fn strip_tiff_metadata_is_idempotent() {
+        let source = build_tiff_with_gps(0x1234);
+
+        let once = strip_tiff_metadata(&source).unwrap();
+        let twice = strip_tiff_metadata(&once).unwrap();
+
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn strip_tiff_metadata_passes_non_tiff_data_through() {
+        let data = b"not a TIFF";
+        assert_eq!(strip_tiff_metadata(data).unwrap(), data);
     }
 
     // ---- grayscale TIFF regression tests -------------------------------------
