@@ -11,9 +11,7 @@ use crate::cli::{Args, OutputFormat};
 use crate::error::BatImgError;
 
 /// Supported image extensions
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "tiff", "tif", "gif", "heic",
-];
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "tiff", "tif", "heic"];
 
 fn is_image(path: &Path) -> bool {
     path.extension()

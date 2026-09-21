@@ -166,10 +166,10 @@ fn webp_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
                         0 => Some("4:2:0"),
                         1 => Some("4:2:2"),
                         2 => Some("4:4:4"),
-                        _ => None,
+                        _ => Some("No"),
                     };
                 }
-                return None;
+                return Some("No");
             }
             b"VP8L" => return Some("4:4:4"),
             _ => {}
@@ -179,7 +179,7 @@ fn webp_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
             pos += 1;
         }
     }
-    None
+    Some("No")
 }
 
 fn tiff_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {

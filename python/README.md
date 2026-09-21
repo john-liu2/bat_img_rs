@@ -96,7 +96,7 @@ bat_img [OPTIONS] --input <INPUT>...
       --contrast <VALUE>      Contrast adjustment (-100 to +100)
       --sharpen               Apply sharpening filter
       --grayscale             Convert to grayscale
-  -f, --format <FORMAT>       Output format (defaults to same as input) [possible values: jpeg, png, webp, tiff, bmp, gif, heic, heif]
+  -f, --format <FORMAT>       Output format (defaults to same as input) [possible values: jpeg, png, webp, tiff, heic]
   -q, --quality <1-100>       JPEG/WebP output quality (1–100), required for non-HEIC output. Default is 90 if not set. HEIC file is encoded with the default encoder
       --suffix <SUFFIX>       Filename suffix appended before extension (e.g. "_edited" → photo_edited.jpg) [default: ""]
       --prefix <PREFIX>       Filename prefix prepended (e.g. "web_" → web_photo.jpg) [default: ""]

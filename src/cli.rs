@@ -181,7 +181,6 @@ pub enum OutputFormat {
     Png,
     Webp,
     Tiff,
-    Gif,
     Heic,
 }
 
@@ -192,7 +191,6 @@ impl OutputFormat {
             OutputFormat::Png => "png",
             OutputFormat::Webp => "webp",
             OutputFormat::Tiff => "tiff",
-            OutputFormat::Gif => "gif",
             OutputFormat::Heic => "heic",
         }
     }
