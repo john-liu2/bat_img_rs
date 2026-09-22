@@ -1,4 +1,4 @@
-// bat_img_rs — fast multithreaded batch image processor
+// cli.rs — fast multithreaded batch images processing
 // Copyright © 2026 - Present, John Liu
 
 use clap::{ArgAction, Parser, ValueEnum};

@@ -57,7 +57,6 @@ bat_img -i ./raw -R --strip-all --sharpen -t 8 -o ./export
 | Contrast adjustment | `--contrast 15` |
 | Sharpen | `--sharpen` |
 | Grayscale | `--grayscale` |
-| Format conversion incl. HEIC | `-f heic / webp / png / jpeg / tiff` |
 | JPEG / WebP quality | `-q 85` |
 | Filename prefix / suffix | `--prefix web_ --suffix _sm` |
 | Parallel threads | `-t 8` |
@@ -120,9 +119,6 @@ bat_img -i ~/Pictures -R --strip-gps
 # Resize all JPEGs to 2048 px wide, in-place
 bat_img -i ./photos -r 2048x0
 ```
-
-**Note:** in-place mode cannot change the file format (e.g. HEIC → WebP).
-Use `--output` when changing formats.
 
 ### Examples
 

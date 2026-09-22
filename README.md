@@ -28,7 +28,6 @@ A fast, **multithreaded** batch image processing command line tool in Rust.
 | Contrast adjustment | `--contrast 15.0` |
 | Sharpen | `--sharpen` |
 | Grayscale conversion | `--grayscale` |
-| Format conversion (incl. HEIC/HEIF) | `-f heic / webp / png / jpeg / tiff ` |
 | JPEG/WebP quality | `-q 85` |
 | Filename prefix/suffix | `--prefix web_ --suffix _sm` |
 | Parallel threads | `-t 8` |
@@ -136,7 +135,7 @@ bat_img_rs -i ~/Pictures/iPhone --strip-gps
 # Strip ALL metadata from every image recursively
 bat_img_rs -i ./archive -R --strip-all
 
-# Resize all HEICs to 2048px wide, keep HEIC format
+# Resize all HEICs to 2048px wide
 bat_img_rs -i ./photos -r 2048x0
 
 # Sharpen, and strip GPS — all in one pass, 8 threads
@@ -175,7 +174,6 @@ bat_img_rs -i ./photos -r 800x600 --strip-gps --dry-run
 |---|---|
 | `bat_img_rs -i ./photos --strip-gps` | In-place: originals overwritten |
 | `bat_img_rs -i ./photos --strip-gps -o ./out` | Output to `./out/`: originals untouched |
-| `bat_img_rs -i ./photos -f webp` | Error: format change requires `--output` |
 
 ## Architecture
 

@@ -868,7 +868,6 @@ pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
             }
         })
     }
-
     fn read_u32(b: &[u8], offset: usize, le: bool) -> Option<u32> {
         b.get(offset..offset + 4).map(|s| {
             if le {
@@ -925,7 +924,6 @@ pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
             Some(count) => count as usize,
             None => continue,
         };
-
         let entries_end = match ifd.checked_add(2 + count * 12 + 4) {
             Some(end) if end <= out.len() => end,
             _ => continue,
@@ -946,7 +944,6 @@ pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
                 out[entry..entry + 12].fill(0);
             }
         }
-
         let next_ifd = read_u32(&out, entries_end - 4, little_endian).unwrap_or(0);
         if next_ifd != 0 {
             pending.push(next_ifd as usize);
