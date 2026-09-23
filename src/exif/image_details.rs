@@ -1,4 +1,5 @@
-//! Compute detailed image properties from raw bytes.
+// Compute detailed image properties from raw bytes.
+// Copyright © 2026 - Present, John Liu
 
 use crate::exif::container::{is_jpeg, is_tiff, is_webp};
 use crate::exif::icc::{exif_color_profile_name, get_icc_profile_name};
@@ -135,48 +136,28 @@ fn jpeg_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+// Lossy Mode (VP8-based): 4:2:0 chroma subsampling.
+// Lossless Mode (VP8L-based): No chroma subsampling.
 fn webp_chroma_subsampling(bytes: &[u8]) -> Option<&'static str> {
     if !is_webp(bytes) {
         return None;
     }
-    let file_size = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
-    let end = (8 + file_size).min(bytes.len());
-    let mut pos = 12;
-    while pos + 8 <= end {
-        let fourcc: [u8; 4] = bytes[pos..pos + 4].try_into().ok()?;
-        let size = u32::from_le_bytes([
-            bytes[pos + 4],
-            bytes[pos + 5],
-            bytes[pos + 6],
-            bytes[pos + 7],
-        ]) as usize;
-        let payload_start = pos + 8;
-        let payload_end = payload_start + size;
-        if payload_end > bytes.len() {
-            break;
-        }
-        match &fourcc {
-            b"VP8 " => {
-                let payload = &bytes[payload_start..payload_end];
-                if payload.len() >= 3 {
-                    let tag = u32::from_le_bytes([payload[0], payload[1], payload[2], 0]);
-                    let chroma_bits = (tag >> 6) & 0x03;
-                    return match chroma_bits {
-                        0 => Some("4:2:0"),
-                        1 => Some("4:2:2"),
-                        2 => Some("4:4:4"),
-                        _ => None,
-                    };
-                }
-                return None;
+    let bytes_sz = bytes.len();
+    let fourcc: [u8; 4] = bytes[12..16].try_into().ok()?;
+    match &fourcc {
+        b"VP8 " => {
+            if bytes_sz >= 30 {
+                return Some("4:2:0");
             }
-            b"VP8L" => return Some("4:4:4"),
-            _ => {}
+            return Some("No");
         }
-        pos = payload_end;
-        if !size.is_multiple_of(2) {
-            pos += 1;
+        b"VP8L" => {
+            return Some("No");
         }
+        b"VP8X" => {
+            return Some("No");
+        }
+        _ => {}
     }
     None
 }

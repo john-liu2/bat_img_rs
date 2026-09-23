@@ -40,7 +40,7 @@ pub fn strip_all_metadata(bytes: &[u8]) -> Result<Vec<u8>> {
     } else if is_webp(bytes) {
         Ok(strip_webp_metadata(bytes))
     } else if is_tiff(bytes) {
-        strip_gps_from_tiff(bytes)
+        strip_tiff_metadata(bytes)
     } else if crate::heic::is_heic_bytes(bytes) {
         strip_all_heic_metadata(bytes)
     } else {
@@ -843,6 +843,114 @@ pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
         }
     }
     Ok(buf)
+}
+
+/// Remove EXIF/descriptive metadata from a TIFF without rewriting pixel data.
+///
+/// TIFF pixel data is referenced by offsets from IFD entries.  Clearing the
+/// metadata entries in place therefore avoids changing any pixel-data offsets
+/// or compression details.  EXIF/GPS pointers are also cleared, making their
+/// sub-IFDs unreachable to TIFF/EXIF readers.
+pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
+    let mut out = tiff.to_vec();
+    if out.len() < 8 || !is_tiff(&out) {
+        return Ok(out);
+    }
+
+    let little_endian = &out[0..2] == b"II";
+
+    fn read_u16(b: &[u8], offset: usize, le: bool) -> Option<u16> {
+        b.get(offset..offset + 2).map(|s| {
+            if le {
+                u16::from_le_bytes([s[0], s[1]])
+            } else {
+                u16::from_be_bytes([s[0], s[1]])
+            }
+        })
+    }
+    fn read_u32(b: &[u8], offset: usize, le: bool) -> Option<u32> {
+        b.get(offset..offset + 4).map(|s| {
+            if le {
+                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
+            } else {
+                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
+            }
+        })
+    }
+
+    // These tags are descriptive metadata, not the information required to
+    // locate/decode the image pixels.  The EXIF/GPS pointers are included so
+    // the metadata sub-IFDs become unreachable.
+    const METADATA_TAGS: &[u16] = &[
+        0x010D, // DocumentName
+        0x010E, // ImageDescription
+        0x010F, // Make
+        0x0110, // Model
+        0x0112, // Orientation
+        0x011A, // XResolution
+        0x011B, // YResolution
+        0x011D, // PageName
+        0x0128, // ResolutionUnit
+        0x0131, // Software
+        0x0132, // DateTime
+        0x013B, // Artist
+        0x013C, // HostComputer
+        0x013E, // WhitePoint
+        0x013F, // PrimaryChromaticities
+        0x0156, // TransferRange
+        0x02BC, // XMP
+        0x8298, // Copyright
+        0x8769, // ExifOffset
+        0x8773, // ICCProfile
+        0x8825, // GPSInfo
+    ];
+
+    let first_ifd = match read_u32(&out, 4, little_endian) {
+        Some(offset) if offset != 0 => offset as usize,
+        _ => return Ok(out),
+    };
+
+    // Follow only the normal TIFF page/IFD chain.  Metadata sub-IFDs are
+    // deliberately not followed because their parent pointers are removed.
+    let mut pending = vec![first_ifd];
+    let mut visited = Vec::new();
+
+    while let Some(ifd) = pending.pop() {
+        if visited.contains(&ifd) {
+            continue;
+        }
+
+        let count = match read_u16(&out, ifd, little_endian) {
+            Some(count) => count as usize,
+            None => continue,
+        };
+        let entries_end = match ifd.checked_add(2 + count * 12 + 4) {
+            Some(end) if end <= out.len() => end,
+            _ => continue,
+        };
+
+        visited.push(ifd);
+
+        for index in 0..count {
+            let entry = ifd + 2 + index * 12;
+            let tag = match read_u16(&out, entry, little_endian) {
+                Some(tag) => tag,
+                None => continue,
+            };
+
+            if METADATA_TAGS.contains(&tag) {
+                // Tag 0 is undefined/reserved, so readers ignore the whole
+                // entry while the fixed IFD layout remains intact.
+                out[entry..entry + 12].fill(0);
+            }
+        }
+        let next_ifd = read_u32(&out, entries_end - 4, little_endian).unwrap_or(0);
+        if next_ifd != 0 {
+            pending.push(next_ifd as usize);
+        }
+    }
+
+    Ok(out)
 }
 
 // ---- JPEG rewrite ---------------------------------------------------------

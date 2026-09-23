@@ -1,16 +1,17 @@
+// Build the processing pipeline and run the parallel image processing tasks.
+// Copyright © 2026 - Present, John Liu
+
 use anyhow::{Context, Result};
 use glob::glob;
 use std::path::Path;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-use crate::cli::{Args, OutputFormat};
+use crate::cli::Args;
 use crate::error::BatImgError;
 
 /// Supported image extensions
-const IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "tiff", "tif", "bmp", "gif", "heic", "heif",
-];
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "tiff", "tif", "heic"];
 
 fn is_image(path: &Path) -> bool {
     path.extension()
@@ -96,7 +97,6 @@ pub struct Pipeline {
     pub sharpen: bool,
     pub grayscale: bool,
 
-    pub output_format: Option<OutputFormat>,
     /// None = preserve original (for HEIC); Some(n) = user-specified quality
     pub quality: Option<u8>,
     /// None = in-place mode (overwrite input files)
@@ -169,7 +169,6 @@ pub fn build_pipeline(args: &Args) -> Result<Pipeline> {
         contrast: args.contrast,
         sharpen: args.sharpen,
         grayscale: args.grayscale,
-        output_format: args.format,
         quality: args.quality,
         output_dir: args.output.clone(),
         in_place,

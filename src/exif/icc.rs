@@ -1,4 +1,5 @@
-//! ICC profile extraction and parsing.
+// ICC profile extraction and parsing.
+// Copyright © 2026 - Present, John Liu
 
 use crate::exif::container::{
     extract_exif_tiff, is_png, is_tiff, is_webp, read_short_tag_from_tiff,

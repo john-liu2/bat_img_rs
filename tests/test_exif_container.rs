@@ -1,4 +1,6 @@
-/// Test bat_img_rs::exif::container
+// Test bat_img_rs::exif::container
+// Copyright © 2026 - Present, John Liu
+
 mod common;
 
 #[cfg(test)]

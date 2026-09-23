@@ -1,7 +1,9 @@
+// cli.rs — fast multithreaded batch images processing
+// Copyright © 2026 - Present, John Liu
+
 use clap::{ArgAction, Parser, ValueEnum};
 use std::path::PathBuf;
 
-/// bat_img_rs — fast multithreaded batch image processor
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "bat_img_rs",
@@ -18,9 +20,6 @@ EXAMPLES:
 
   # Strip GPS from all JPEGs in a folder, save to ./output
   bat_img_rs -i ./photos/*.jpg --strip-gps -o ./output
-
-  # Resize to max 1920px wide, add a white border, convert to WebP
-  bat_img_rs -i ./photos -r 1920x0 --border 10 --border-color white -f webp -o ./out
 
   # Resize keeping aspect ratio (height-constrained), quality 85, 8 threads
   bat_img_rs -i ./raw -r 0x1080 -q 85 -t 8 -o ./web
@@ -116,11 +115,6 @@ pub struct Args {
     #[arg(long, action = ArgAction::SetTrue)]
     pub grayscale: bool,
 
-    // ── Output format / Quality ──────────────────────────────────────────────
-    /// Output format (defaults to same as input)
-    #[arg(short, long, value_enum)]
-    pub format: Option<OutputFormat>,
-
     /// JPEG/WebP output quality (1–100), required for non-HEIC output.
     /// Default is 90 if not set. HEIC file is encoded with the default encoder
     #[arg(short = 'q', long, value_name = "1-100")]
@@ -169,33 +163,6 @@ impl From<FilterType> for image::imageops::FilterType {
             FilterType::CatmullRom => image::imageops::FilterType::CatmullRom,
             FilterType::Gaussian => image::imageops::FilterType::Gaussian,
             FilterType::Lanczos3 => image::imageops::FilterType::Lanczos3,
-        }
-    }
-}
-
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq)]
-pub enum OutputFormat {
-    Jpeg,
-    Png,
-    Webp,
-    Tiff,
-    Bmp,
-    Gif,
-    Heic,
-    Heif,
-}
-
-impl OutputFormat {
-    pub fn extension(&self) -> &'static str {
-        match self {
-            OutputFormat::Jpeg => "jpg",
-            OutputFormat::Png => "png",
-            OutputFormat::Webp => "webp",
-            OutputFormat::Tiff => "tiff",
-            OutputFormat::Bmp => "bmp",
-            OutputFormat::Gif => "gif",
-            OutputFormat::Heic => "heic",
-            OutputFormat::Heif => "heif",
         }
     }
 }

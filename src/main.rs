@@ -1,3 +1,6 @@
+// The binary entry point (main.rs)
+// Copyright © 2026 - Present, John Liu
+
 mod cli;
 mod error;
 mod exif;

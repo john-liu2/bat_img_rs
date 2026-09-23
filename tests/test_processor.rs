@@ -33,7 +33,6 @@ mod tests {
             contrast: None,
             sharpen: false,
             grayscale: false,
-            output_format: None,
             quality: None,
             output_dir: Some(out_dir),
             in_place: false,
@@ -509,21 +508,6 @@ mod tests {
         let src = save_png(&solid_rgb(64, 64, 0, 0, 0), &tmp, "image.png");
 
         let output = run(src, base_pipeline(out.path().to_path_buf()));
-        assert_eq!(output.extension().unwrap(), "png");
-        image::open(&output).unwrap();
-    }
-
-    #[test]
-    fn format_conversion_jpeg_to_png() {
-        use bat_img_rs::cli::OutputFormat;
-        let tmp = TempDir::new().unwrap();
-        let out = TempDir::new().unwrap();
-        let src = save_jpeg(&solid_rgb(32, 32, 0, 0, 0), &tmp, "photo.jpg");
-
-        let mut p = base_pipeline(out.path().to_path_buf());
-        p.output_format = Some(OutputFormat::Png);
-
-        let output = run(src, p);
         assert_eq!(output.extension().unwrap(), "png");
         image::open(&output).unwrap();
     }
