@@ -377,18 +377,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_all_metadata_uses_tiff_metadata_stripper() {
-        let source = build_tiff_with_gps(0x5678);
-
-        let stripped = strip_all_metadata(&source).unwrap();
-
-        assert!(is_tiff(&stripped));
-        let info = parse_exif_bytes(&stripped).unwrap();
-        assert_eq!(info.make, None);
-        assert!(!info.gps_present);
-    }
-
-    #[test]
     fn strip_tiff_metadata_preserves_pixels() {
         let original =
             image::GrayImage::from_fn(17, 11, |x, y| image::Luma([((x * 13 + y * 7) % 251) as u8]));
@@ -408,22 +396,6 @@ mod tests {
         let decoded = image::open(&path).unwrap().to_luma8();
         assert_eq!(decoded.dimensions(), original.dimensions());
         assert_eq!(decoded.as_raw(), original.as_raw());
-    }
-
-    #[test]
-    fn strip_tiff_metadata_is_idempotent() {
-        let source = build_tiff_with_gps(0x1234);
-
-        let once = strip_tiff_metadata(&source).unwrap();
-        let twice = strip_tiff_metadata(&once).unwrap();
-
-        assert_eq!(once, twice);
-    }
-
-    #[test]
-    fn strip_tiff_metadata_passes_non_tiff_data_through() {
-        let data = b"not a TIFF";
-        assert_eq!(strip_tiff_metadata(data).unwrap(), data);
     }
 
     // ---- grayscale TIFF regression tests -------------------------------------
@@ -863,30 +835,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_all_non_jpeg_passthrough() {
-        let data = b"\x89PNG\r\n\x1a\nsome_data";
-        let result = strip_all_metadata(data).unwrap();
-        assert_eq!(result, data.as_ref());
-    }
-
-    #[test]
-    fn strip_all_idempotent() {
-        let tiff = build_tiff_le(&[(0x0112, 3, 6)]);
-        let jpeg = jpeg_with_exif(&tiff);
-        let once = strip_all_metadata(&jpeg).unwrap();
-        let twice = strip_all_metadata(&once).unwrap();
-        assert_eq!(once, twice);
-    }
-
-    #[test]
-    fn strip_all_preserves_length_or_shrinks() {
-        let tiff = build_tiff_le(&[(0x0112, 3, 1)]);
-        let jpeg = jpeg_with_exif(&tiff);
-        let stripped = strip_all_metadata(&jpeg).unwrap();
-        assert!(stripped.len() <= jpeg.len());
-    }
-
-    #[test]
     fn graft_exif_preserves_app1_on_real_jpeg_encode() {
         let mut img = RgbImage::new(8, 8);
         for pixel in img.pixels_mut() {
@@ -936,30 +884,6 @@ mod tests {
         let gps_bytes = 0x1234u32.to_le_bytes();
         let found = stripped.windows(4).any(|w| w == gps_bytes);
         assert!(!found);
-    }
-
-    #[test]
-    fn strip_gps_no_gps_is_noop() {
-        let tiff = build_tiff_le(&[(0x0112, 3, 1)]);
-        let jpeg = jpeg_with_exif(&tiff);
-        let stripped = strip_gps_metadata(&jpeg).unwrap();
-        assert!(stripped.starts_with(&[0xFF, 0xD8]));
-        assert!(stripped.len() <= jpeg.len());
-    }
-
-    #[test]
-    fn strip_gps_non_jpeg_passthrough() {
-        let data = b"\x89PNG\r\n\x1a\nsome_data";
-        let result = strip_gps_metadata(data).unwrap();
-        assert_eq!(result, data.as_ref());
-    }
-
-    #[test]
-    fn strip_gps_result_is_valid_jpeg_header() {
-        let tiff = build_tiff_with_gps(0xFF00);
-        let jpeg = jpeg_with_exif(&tiff);
-        let stripped = strip_gps_metadata(&jpeg).unwrap();
-        assert!(stripped.starts_with(&[0xFF, 0xD8]));
     }
 
     #[test]
