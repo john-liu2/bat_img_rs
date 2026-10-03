@@ -7,12 +7,13 @@ mod common;
 mod tests {
     use super::common::{
         build_minimal_tiff, build_tiff_le, build_tiff_with_exif_color_space, build_tiff_with_gps,
-        find_color_space_value, jpeg_with_exif, png_with_exif_chunk, webp_with_exif_chunk,
+        find_color_space_value, jpeg_with_exif, png_with_exif_chunk, webp_chunks_for_test,
+        webp_with_chunks, webp_with_exif_chunk,
     };
     use bat_img_rs::exif::{
         extract_exif_tiff, inject_exif_into_tiff, is_png, is_tiff, parse_exif_bytes, read_exif,
         rewrite_exif_metadata, strip_all_metadata, strip_gps_from_tiff, strip_gps_metadata,
-        strip_tiff_metadata, write_exif_file,
+        strip_tiff_metadata, strip_webp_metadata, write_exif_file,
     };
     use image::{GrayImage, ImageFormat, RgbImage};
     use tempfile::TempDir;
@@ -912,6 +913,130 @@ mod tests {
 
         assert!(saved.starts_with(b"RIFF"));
         assert!(!saved.windows(4).any(|x| x == b"EXIF"));
+    }
+
+    #[test]
+    fn strip_webp_metadata_preserves_image_chunks() {
+        let vp8_payload = b"fake-vp8-image-data";
+        let vp8l_payload = b"fake-vp8l-image-data";
+        let anim_payload = b"animation-data";
+
+        let webp = webp_with_chunks(&[
+            (b"VP8 ", vp8_payload),
+            (b"VP8L", vp8l_payload),
+            (b"ANIM", anim_payload),
+        ]);
+
+        let stripped = strip_webp_metadata(&webp);
+
+        assert_eq!(
+            webp_chunks_for_test(&stripped),
+            vec![
+                (*b"VP8 ", vp8_payload.to_vec()),
+                (*b"VP8L", vp8l_payload.to_vec()),
+                (*b"ANIM", anim_payload.to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn strip_webp_metadata_removes_exif_xmp_and_iccp() {
+        let webp = webp_with_chunks(&[
+            (b"VP8 ", b"image-data"),
+            (b"EXIF", b"exif-data"),
+            (b"XMP ", b"xmp-data"),
+            (b"ICCP", b"icc-data"),
+        ]);
+
+        let stripped = strip_webp_metadata(&webp);
+        let chunks = webp_chunks_for_test(&stripped);
+
+        assert_eq!(chunks, vec![(*b"VP8 ", b"image-data".to_vec())]);
+
+        assert!(!stripped.windows(4).any(|x| x == b"EXIF"));
+        assert!(!stripped.windows(4).any(|x| x == b"XMP "));
+        assert!(!stripped.windows(4).any(|x| x == b"ICCP"));
+    }
+
+    #[test]
+    fn strip_webp_metadata_preserves_non_metadata_payload_exactly() {
+        // This is the regression test for the bug where non-metadata chunks
+        // were replaced with Some(vec![]) instead of their original payload.
+        let image_payload = [0x00, 0x01, 0x02, 0x03, 0xFE, 0xFF, 0x10, 0x20, 0x30];
+
+        let webp = webp_with_chunks(&[(b"VP8 ", &image_payload), (b"EXIF", b"metadata")]);
+
+        let stripped = strip_webp_metadata(&webp);
+        let chunks = webp_chunks_for_test(&stripped);
+
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].0, *b"VP8 ");
+        assert_eq!(chunks[0].1, image_payload);
+    }
+
+    #[test]
+    fn strip_webp_metadata_updates_riff_size() {
+        let webp = webp_with_chunks(&[
+            (b"VP8 ", b"image-data"),
+            (b"EXIF", b"exif-data"),
+            (b"XMP ", b"xmp-data"),
+        ]);
+
+        let stripped = strip_webp_metadata(&webp);
+
+        let riff_size = u32::from_le_bytes(stripped[4..8].try_into().unwrap()) as usize;
+
+        assert_eq!(riff_size, stripped.len() - 8);
+    }
+
+    #[test]
+    fn strip_webp_metadata_preserves_odd_length_chunk_padding() {
+        // "abc" has an odd payload length and therefore requires one padding byte.
+        let image_payload = b"abc";
+
+        let webp = webp_with_chunks(&[(b"VP8 ", image_payload), (b"EXIF", b"metadata")]);
+
+        let stripped = strip_webp_metadata(&webp);
+
+        assert_eq!(stripped, {
+            let mut expected = Vec::new();
+            expected.extend_from_slice(b"RIFF");
+            expected.extend_from_slice(&[0; 4]);
+            expected.extend_from_slice(b"WEBP");
+            expected.extend_from_slice(b"VP8 ");
+            expected.extend_from_slice(&(3u32).to_le_bytes());
+            expected.extend_from_slice(b"abc");
+            expected.push(0); // RIFF chunk padding
+
+            let riff_size = (expected.len() - 8) as u32;
+            expected[4..8].copy_from_slice(&riff_size.to_le_bytes());
+
+            expected
+        });
+    }
+
+    #[test]
+    fn strip_webp_metadata_is_idempotent() {
+        let webp = webp_with_chunks(&[
+            (b"VP8 ", b"image-data"),
+            (b"EXIF", b"exif-data"),
+            (b"XMP ", b"xmp-data"),
+            (b"ICCP", b"icc-data"),
+        ]);
+
+        let once = strip_webp_metadata(&webp);
+        let twice = strip_webp_metadata(&once);
+
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn strip_webp_metadata_passes_invalid_webp_through_unchanged() {
+        let data = b"not a WebP image";
+
+        let stripped = strip_webp_metadata(data);
+
+        assert_eq!(stripped, data);
     }
 
     #[test]

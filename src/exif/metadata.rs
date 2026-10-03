@@ -980,7 +980,7 @@ fn rewrite_webp_exif_without_gps(webp: &[u8]) -> Result<Vec<u8>> {
 
 // Keep: VP8, VP8L, VP8X, ANIM, ANMF, ALPH
 // Remove: EXIF, XMP, ICCP
-fn strip_webp_metadata(webp: &[u8]) -> Vec<u8> {
+pub fn strip_webp_metadata(webp: &[u8]) -> Vec<u8> {
     rebuild_webp_chunks(webp, |fourcc, payload| {
         if matches!(fourcc, b"EXIF" | b"XMP " | b"ICCP") {
             None

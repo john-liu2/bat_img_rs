@@ -112,6 +112,63 @@ pub fn png_with_exif_chunk(exif: &[u8]) -> Vec<u8> {
     out
 }
 
+// ---- WebP metadata stripping tests -----------------------------------------
+
+pub fn webp_chunk(fourcc: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+    let mut chunk = Vec::with_capacity(8 + payload.len() + payload.len() % 2);
+    chunk.extend_from_slice(fourcc);
+    chunk.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    chunk.extend_from_slice(payload);
+
+    // RIFF/WebP chunks are padded to an even size.
+    if !payload.len().is_multiple_of(2) {
+        chunk.push(0);
+    }
+    chunk
+}
+
+#[allow(dead_code)]
+pub fn webp_with_chunks(chunks: &[(&[u8; 4], &[u8])]) -> Vec<u8> {
+    let mut webp = Vec::new();
+    webp.extend_from_slice(b"RIFF");
+    webp.extend_from_slice(&[0; 4]); // patched below
+    webp.extend_from_slice(b"WEBP");
+
+    for (fourcc, payload) in chunks {
+        webp.extend_from_slice(&webp_chunk(fourcc, payload));
+    }
+    let riff_size = (webp.len() - 8) as u32;
+    webp[4..8].copy_from_slice(&riff_size.to_le_bytes());
+
+    webp
+}
+
+#[allow(dead_code)]
+pub fn webp_chunks_for_test(webp: &[u8]) -> Vec<([u8; 4], Vec<u8>)> {
+    let mut chunks = Vec::new();
+
+    assert!(webp.starts_with(b"RIFF"));
+    assert_eq!(&webp[8..12], b"WEBP");
+
+    let mut offset = 12;
+
+    while offset + 8 <= webp.len() {
+        let fourcc: [u8; 4] = webp[offset..offset + 4].try_into().unwrap();
+        let size = u32::from_le_bytes(webp[offset + 4..offset + 8].try_into().unwrap()) as usize;
+
+        let payload_start = offset + 8;
+        let payload_end = payload_start + size;
+
+        assert!(payload_end <= webp.len());
+
+        chunks.push((fourcc, webp[payload_start..payload_end].to_vec()));
+        offset = payload_end + size % 2;
+    }
+    assert_eq!(offset, webp.len());
+
+    chunks
+}
+
 #[allow(dead_code)]
 pub fn webp_with_exif_chunk(exif: &[u8]) -> Vec<u8> {
     let mut body = Vec::new();
