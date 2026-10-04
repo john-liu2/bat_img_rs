@@ -15,6 +15,15 @@ pub struct ImageDetails {
 }
 
 pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageDetails {
+    get_image_details_with_grayscale(color, format, bytes, false)
+}
+
+pub fn get_image_details_with_grayscale(
+    color: ColorType,
+    format: &str,
+    bytes: &[u8],
+    container_is_grayscale: bool,
+) -> ImageDetails {
     let bits_per_pixel = color.bits_per_pixel();
     let channels = color.channel_count();
     let bit_depth = if channels > 0 {
@@ -25,7 +34,12 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
 
     let has_alpha = matches!(color, ColorType::Rgba8 | ColorType::Rgba16);
 
-    let colorspace = if format == "HEIC" {
+    // Grayscale takes precedence over the container format
+    let is_grayscale = matches!(color, ColorType::L8 | ColorType::L16) || container_is_grayscale;
+
+    let colorspace = if is_grayscale {
+        "Gray"
+    } else if format == "HEIC" {
         if has_alpha { "YCbCr + Alpha" } else { "YCbCr" }
     } else {
         match color {
@@ -57,7 +71,11 @@ pub fn get_image_details(color: ColorType, format: &str, bytes: &[u8]) -> ImageD
         c_profile = name;
     }
     if c_profile == "Unknown" {
-        c_profile = "sRGB".to_string();
+        if is_grayscale {
+            c_profile = "Generic Gray Gamma 2.2 Profile".to_string();
+        } else {
+            c_profile = "sRGB".to_string();
+        }
     }
 
     // PNG files do not use chroma subsampling (like 4:2:2 or 4:2:0)

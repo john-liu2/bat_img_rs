@@ -3,12 +3,48 @@ mod common;
 #[cfg(test)]
 mod tests {
     use super::common::{create_test_heic, create_test_jpeg, create_test_png};
+    use bat_img_rs::heic;
     use bat_img_rs::info::{
         easy_file_sz, format_dimensions, format_exif_metadata, format_file_metadata, format_format,
         format_image_details, format_info,
     };
     use std::path::Path;
     use tempfile::tempdir;
+
+    #[test]
+    fn format_info_reports_gray_for_grayscale_heic() -> anyhow::Result<()> {
+        use image::{DynamicImage, GrayImage, Luma};
+        use libheif_rs::CompressionFormat;
+
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("gray.heic");
+
+        let image = GrayImage::from_pixel(16, 16, Luma([128]));
+        let image = DynamicImage::ImageLuma8(image);
+
+        heic::encode(
+            &image,
+            &file,
+            CompressionFormat::Hevc,
+            Some(90),
+            None,
+            Some(heic::gray_gamma_22_icc_profile()),
+        )?;
+
+        let output = format_info(&file);
+        assert!(
+            output.contains("Gray"),
+            "format_info() should report Gray:\n{}",
+            output
+        );
+        assert!(
+            output.contains("gray built-in"),
+            "format_info() should report gray built-in:\n{}",
+            output
+        );
+
+        Ok(())
+    }
 
     // ---------- easy_file_sz ----------
     #[test]

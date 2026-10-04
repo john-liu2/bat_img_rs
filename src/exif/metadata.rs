@@ -52,85 +52,45 @@ fn reset_orientation_in_tiff(tiff: &mut [u8]) {
     if tiff.len() < 8 {
         return;
     }
-    let little_endian = match &tiff[0..2] {
+    let le = match &tiff[0..2] {
         b"II" => true,
         b"MM" => false,
         _ => return,
     };
-    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
-        b.get(o..o + 2).map(|s| {
-            if little_endian {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
-    };
-    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
-        b.get(o..o + 4).map(|s| {
-            if little_endian {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
-    };
-    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
-        let bytes = if little_endian {
-            v.to_le_bytes()
-        } else {
-            v.to_be_bytes()
-        };
-        if o + 2 <= b.len() {
-            b[o..o + 2].copy_from_slice(&bytes);
-        }
-    };
-    let write_u32 = |b: &mut [u8], o: usize, v: u32| {
-        let bytes = if little_endian {
-            v.to_le_bytes()
-        } else {
-            v.to_be_bytes()
-        };
-        if o + 4 <= b.len() {
-            b[o..o + 4].copy_from_slice(&bytes);
-        }
-    };
-    let ifd_offset = match read_u32(tiff, 4) {
-        Some(o) => o as usize,
+    let ifd = match read_u32_tiff(tiff, 4, le) {
+        Some(v) => v as usize,
         None => return,
     };
-    let entry_count = match read_u16(tiff, ifd_offset) {
-        Some(c) => c as usize,
+    let count = match read_u16_tiff(tiff, ifd, le) {
+        Some(v) => v as usize,
         None => return,
     };
-    for e in 0..entry_count {
-        let entry_offset = ifd_offset + 2 + e * 12;
-        if read_u16(tiff, entry_offset) == Some(0x0112) {
-            let typ = read_u16(tiff, entry_offset + 2).unwrap_or(3);
-            let cnt = read_u32(tiff, entry_offset + 4).unwrap_or(1);
-            let total_size = match typ {
-                1 | 2 | 6 | 7 => cnt as usize,
-                3 | 8 => cnt as usize * 2,
-                4 | 9 | 11 => cnt as usize * 4,
-                5 | 10 | 12 => cnt as usize * 8,
-                _ => return,
-            };
-            if total_size <= 4 {
-                if matches!(typ, 4 | 9 | 11) {
-                    write_u32(tiff, entry_offset + 8, 1);
-                } else {
-                    write_u16(tiff, entry_offset + 8, 1);
-                }
-            } else if let Some(val_offset) = read_u32(tiff, entry_offset + 8) {
-                let vo = val_offset as usize;
-                if matches!(typ, 4 | 9 | 11) {
-                    write_u32(tiff, vo, 1);
-                } else {
-                    write_u16(tiff, vo, 1);
-                }
-            }
-            break;
+    for i in 0..count {
+        let entry = ifd + 2 + i * 12;
+        if read_u16_tiff(tiff, entry, le) != Some(0x0112) {
+            continue;
         }
+        let typ = read_u16_tiff(tiff, entry + 2, le).unwrap_or(3);
+        let count = read_u32_tiff(tiff, entry + 4, le).unwrap_or(1);
+        let size = tiff_type_size(typ);
+        if size == 0 {
+            return;
+        }
+        let total = count as usize * size;
+        let value = if total <= 4 {
+            entry + 8
+        } else {
+            match read_u32_tiff(tiff, entry + 8, le) {
+                Some(v) => v as usize,
+                None => return,
+            }
+        };
+        if matches!(typ, 4 | 9 | 11) {
+            write_u32_tiff(tiff, value, 1, le);
+        } else {
+            write_u16_tiff(tiff, value, 1, le);
+        }
+        return;
     }
 }
 
@@ -433,34 +393,9 @@ pub fn inject_exif_into_tiff(output: &[u8], exif_tiff: &[u8]) -> Result<Vec<u8>>
         exif_tiff.to_vec()
     };
 
-    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
-        b.get(o..o + 2).map(|s| {
-            if le {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
-    };
-    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
-        b.get(o..o + 4).map(|s| {
-            if le {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
-    };
-    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
-        if let Some(slice) = b.get_mut(o..o + 2) {
-            slice.copy_from_slice(&(if le { v.to_le_bytes() } else { v.to_be_bytes() }));
-        }
-    };
-    let write_u32 = |b: &mut [u8], o: usize, v: u32| {
-        if let Some(slice) = b.get_mut(o..o + 4) {
-            slice.copy_from_slice(&(if le { v.to_le_bytes() } else { v.to_be_bytes() }));
-        }
-    };
+    let read_u16 = |b: &[u8], o: usize| read_u16_tiff(b, o, le);
+    let read_u32 = |b: &[u8], o: usize| read_u32_tiff(b, o, le);
+    let write_u32 = |b: &mut [u8], o: usize, v: u32| write_u32_tiff(b, o, v, le);
 
     let old_ifd0_offset = match read_u32(&result, 4) {
         Some(o) => o as usize,
@@ -557,7 +492,7 @@ pub fn inject_exif_into_tiff(output: &[u8], exif_tiff: &[u8]) -> Result<Vec<u8>>
     write_u32(&mut result, 4, new_ifd0_offset);
 
     let mut count_buf = vec![0; 2];
-    write_u16(&mut count_buf, 0, entries.len() as u16);
+    write_u16_tiff(&mut count_buf, 0, entries.len() as u16, le);
     result.extend_from_slice(&count_buf);
 
     for e in entries {
@@ -682,167 +617,92 @@ fn set_exif_color_space_to_uncalibrated(tiff: &mut [u8]) {
     if tiff.len() < 8 {
         return;
     }
-    let little_endian = match &tiff[0..2] {
+    let le = match &tiff[0..2] {
         b"II" => true,
         b"MM" => false,
         _ => return,
     };
-    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
-        b.get(o..o + 2).map(|s| {
-            if little_endian {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
-    };
-    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
-        b.get(o..o + 4).map(|s| {
-            if little_endian {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
-    };
-    let write_u16 = |b: &mut [u8], o: usize, v: u16| {
-        let bytes = if little_endian {
-            v.to_le_bytes()
-        } else {
-            v.to_be_bytes()
-        };
-        if o + 2 <= b.len() {
-            b[o..o + 2].copy_from_slice(&bytes);
-        }
-    };
-    let write_u32 = |b: &mut [u8], o: usize, v: u32| {
-        let bytes = if little_endian {
-            v.to_le_bytes()
-        } else {
-            v.to_be_bytes()
-        };
-        if o + 4 <= b.len() {
-            b[o..o + 4].copy_from_slice(&bytes);
-        }
-    };
-
-    let ifd_offset = match read_u32(tiff, 4) {
-        Some(o) => o as usize,
+    let ifd0 = match read_u32_tiff(tiff, 4, le) {
+        Some(v) => v as usize,
         None => return,
     };
-    let entry_count = match read_u16(tiff, ifd_offset) {
-        Some(c) => c as usize,
+    let count = match read_u16_tiff(tiff, ifd0, le) {
+        Some(v) => v as usize,
         None => return,
     };
-
-    // Locate the ExifOffset tag (0x8769) to jump into the sub-IFD
-    let mut exif_ifd_offset = None;
-    for e in 0..entry_count {
-        let entry_offset = ifd_offset + 2 + e * 12;
-        if read_u16(tiff, entry_offset) == Some(0x8769) {
-            exif_ifd_offset = read_u32(tiff, entry_offset + 8).map(|v| v as usize);
-            break;
+    let exif_ifd = (0..count).find_map(|i| {
+        let entry = ifd0 + 2 + i * 12;
+        (read_u16_tiff(tiff, entry, le) == Some(0x8769))
+            .then(|| read_u32_tiff(tiff, entry + 8, le).map(|v| v as usize))
+            .flatten()
+    });
+    let Some(exif_ifd) = exif_ifd else { return };
+    let count = match read_u16_tiff(tiff, exif_ifd, le) {
+        Some(v) => v as usize,
+        None => return,
+    };
+    for i in 0..count {
+        let entry = exif_ifd + 2 + i * 12;
+        if read_u16_tiff(tiff, entry, le) != Some(0xA001) {
+            continue;
         }
-    }
-
-    if let Some(exif_offset) = exif_ifd_offset
-        && let Some(exif_entry_count) = read_u16(tiff, exif_offset)
-    {
-        for e in 0..(exif_entry_count as usize) {
-            let entry_offset = exif_offset + 2 + e * 12;
-            if read_u16(tiff, entry_offset) == Some(0xA001) {
-                let typ = read_u16(tiff, entry_offset + 2).unwrap_or(3);
-                let cnt = read_u32(tiff, entry_offset + 4).unwrap_or(1);
-                let total_size = match typ {
-                    1 | 2 | 6 | 7 => cnt as usize,
-                    3 | 8 => cnt as usize * 2,
-                    4 | 9 | 11 => cnt as usize * 4,
-                    5 | 10 | 12 => cnt as usize * 8,
-                    _ => return,
-                };
-                if total_size <= 4 {
-                    if matches!(typ, 4 | 9 | 11) {
-                        write_u32(tiff, entry_offset + 8, 0xFFFF);
-                    } else {
-                        write_u16(tiff, entry_offset + 8, 0xFFFF);
-                    }
-                } else if let Some(val_offset) = read_u32(tiff, entry_offset + 8) {
-                    let vo = val_offset as usize;
-                    if matches!(typ, 4 | 9 | 11) {
-                        write_u32(tiff, vo, 0xFFFF);
-                    } else {
-                        write_u16(tiff, vo, 0xFFFF);
-                    }
-                }
-                break;
+        let typ = read_u16_tiff(tiff, entry + 2, le).unwrap_or(3);
+        let count = read_u32_tiff(tiff, entry + 4, le).unwrap_or(1);
+        let size = tiff_type_size(typ);
+        if size == 0 {
+            return;
+        }
+        let total = count as usize * size;
+        let value = if total <= 4 {
+            entry + 8
+        } else {
+            match read_u32_tiff(tiff, entry + 8, le) {
+                Some(v) => v as usize,
+                None => return,
             }
+        };
+        if matches!(typ, 4 | 9 | 11) {
+            write_u32_tiff(tiff, value, 0xFFFF, le);
+        } else {
+            write_u16_tiff(tiff, value, 0xFFFF, le);
         }
+        return;
     }
 }
 
 /// Strip GPS from a raw TIFF/EXIF block by removing the GPSInfo IFD pointer tag.
 pub fn strip_gps_from_tiff(tiff: &[u8]) -> Result<Vec<u8>> {
-    let mut buf = tiff.to_vec();
-    if buf.len() < 8 {
-        return Ok(buf);
+    let mut out = tiff.to_vec();
+    if out.len() < 8 {
+        return Ok(out);
     }
-    let little_endian = match &buf[0..2] {
+    let le = match &out[0..2] {
         b"II" => true,
         b"MM" => false,
-        _ => return Ok(buf),
+        _ => return Ok(out),
     };
-    let read_u16 = |b: &[u8], o: usize| -> Option<u16> {
-        b.get(o..o + 2).map(|s| {
-            if little_endian {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
+    let ifd = match read_u32_tiff(&out, 4, le) {
+        Some(v) => v as usize,
+        None => return Ok(out),
     };
-    let read_u32 = |b: &[u8], o: usize| -> Option<u32> {
-        b.get(o..o + 4).map(|s| {
-            if little_endian {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
+    let count = match read_u16_tiff(&out, ifd, le) {
+        Some(v) => v as usize,
+        None => return Ok(out),
     };
-    let write_u16 = |b: &mut Vec<u8>, o: usize, v: u16| {
-        let bytes = if little_endian {
-            v.to_le_bytes()
-        } else {
-            v.to_be_bytes()
-        };
-        b[o..o + 2].copy_from_slice(&bytes);
+    let end = match ifd.checked_add(2 + count * 12 + 4) {
+        Some(v) if v <= out.len() => v,
+        _ => return Ok(out),
     };
-    let ifd_offset = match read_u32(&buf, 4) {
-        Some(o) => o as usize,
-        None => return Ok(buf),
-    };
-    let entry_count = match read_u16(&buf, ifd_offset) {
-        Some(c) => c as usize,
-        None => return Ok(buf),
-    };
-    for e in 0..entry_count {
-        let entry_offset = ifd_offset + 2 + e * 12;
-        if let Some(tag) = read_u16(&buf, entry_offset)
-            && tag == 0x8825
-        {
-            let next_entry = entry_offset + 12;
-            let end_of_entries = ifd_offset + 2 + entry_count * 12;
-            buf.copy_within(next_entry..end_of_entries + 4, entry_offset);
-            let freed_space_start = end_of_entries + 4 - 12;
-            let freed_space_end = end_of_entries + 4;
-            if freed_space_end <= buf.len() {
-                buf[freed_space_start..freed_space_end].fill(0);
-            }
-            write_u16(&mut buf, ifd_offset, (entry_count - 1) as u16);
+    for i in 0..count {
+        let entry = ifd + 2 + i * 12;
+        if read_u16_tiff(&out, entry, le) == Some(0x8825) {
+            out.copy_within(entry + 12..end, entry);
+            out[end - 12..end].fill(0);
+            write_u16_tiff(&mut out, ifd, (count - 1) as u16, le);
             break;
         }
     }
-    Ok(buf)
+    Ok(out)
 }
 
 /// Remove EXIF/descriptive metadata from a TIFF without rewriting pixel data.
@@ -856,31 +716,12 @@ pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
     if out.len() < 8 || !is_tiff(&out) {
         return Ok(out);
     }
+    let le = &out[0..2] == b"II";
+    let first_ifd = match read_u32_tiff(&out, 4, le) {
+        Some(v) if v != 0 => v as usize,
+        _ => return Ok(out),
+    };
 
-    let little_endian = &out[0..2] == b"II";
-
-    fn read_u16(b: &[u8], offset: usize, le: bool) -> Option<u16> {
-        b.get(offset..offset + 2).map(|s| {
-            if le {
-                u16::from_le_bytes([s[0], s[1]])
-            } else {
-                u16::from_be_bytes([s[0], s[1]])
-            }
-        })
-    }
-    fn read_u32(b: &[u8], offset: usize, le: bool) -> Option<u32> {
-        b.get(offset..offset + 4).map(|s| {
-            if le {
-                u32::from_le_bytes([s[0], s[1], s[2], s[3]])
-            } else {
-                u32::from_be_bytes([s[0], s[1], s[2], s[3]])
-            }
-        })
-    }
-
-    // These tags are descriptive metadata, not the information required to
-    // locate/decode the image pixels.  The EXIF/GPS pointers are included so
-    // the metadata sub-IFDs become unreachable.
     const METADATA_TAGS: &[u16] = &[
         0x010D, // DocumentName
         0x010E, // ImageDescription
@@ -905,51 +746,35 @@ pub fn strip_tiff_metadata(tiff: &[u8]) -> Result<Vec<u8>> {
         0x8825, // GPSInfo
     ];
 
-    let first_ifd = match read_u32(&out, 4, little_endian) {
-        Some(offset) if offset != 0 => offset as usize,
-        _ => return Ok(out),
-    };
-
-    // Follow only the normal TIFF page/IFD chain.  Metadata sub-IFDs are
-    // deliberately not followed because their parent pointers are removed.
     let mut pending = vec![first_ifd];
     let mut visited = Vec::new();
-
     while let Some(ifd) = pending.pop() {
         if visited.contains(&ifd) {
             continue;
         }
-
-        let count = match read_u16(&out, ifd, little_endian) {
-            Some(count) => count as usize,
+        let count = match read_u16_tiff(&out, ifd, le) {
+            Some(v) => v as usize,
             None => continue,
         };
-        let entries_end = match ifd.checked_add(2 + count * 12 + 4) {
-            Some(end) if end <= out.len() => end,
+        let end = match ifd.checked_add(2 + count * 12 + 4) {
+            Some(v) if v <= out.len() => v,
             _ => continue,
         };
-
         visited.push(ifd);
-
-        for index in 0..count {
-            let entry = ifd + 2 + index * 12;
-            let tag = match read_u16(&out, entry, little_endian) {
-                Some(tag) => tag,
-                None => continue,
-            };
-
-            if METADATA_TAGS.contains(&tag) {
-                // Tag 0 is undefined/reserved, so readers ignore the whole
-                // entry while the fixed IFD layout remains intact.
+        for i in 0..count {
+            let entry = ifd + 2 + i * 12;
+            if let Some(tag) = read_u16_tiff(&out, entry, le)
+                && METADATA_TAGS.contains(&tag)
+            {
                 out[entry..entry + 12].fill(0);
             }
         }
-        let next_ifd = read_u32(&out, entries_end - 4, little_endian).unwrap_or(0);
-        if next_ifd != 0 {
-            pending.push(next_ifd as usize);
+        if let Some(next) = read_u32_tiff(&out, end - 4, le)
+            && next != 0
+        {
+            pending.push(next as usize);
         }
     }
-
     Ok(out)
 }
 
@@ -1153,12 +978,14 @@ fn rewrite_webp_exif_without_gps(webp: &[u8]) -> Result<Vec<u8>> {
     .ok_or_else(|| anyhow::anyhow!("WebP EXIF rewrite failed"))
 }
 
-fn strip_webp_metadata(webp: &[u8]) -> Vec<u8> {
-    rebuild_webp_chunks(webp, |fourcc, _payload| {
+// Keep: VP8, VP8L, VP8X, ANIM, ANMF, ALPH
+// Remove: EXIF, XMP, ICCP
+pub fn strip_webp_metadata(webp: &[u8]) -> Vec<u8> {
+    rebuild_webp_chunks(webp, |fourcc, payload| {
         if matches!(fourcc, b"EXIF" | b"XMP " | b"ICCP") {
             None
         } else {
-            Some(vec![])
+            Some(payload.to_vec())
         }
     })
     .unwrap_or_else(|| webp.to_vec())
