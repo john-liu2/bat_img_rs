@@ -308,8 +308,14 @@ impl ProcessingContext {
                 let compression = heic_meta
                     .map(|m| m.compression)
                     .unwrap_or(CompressionFormat::Hevc);
+                let icc_profile = if p.grayscale {
+                    Some(heic::gray_gamma_22_icc_profile())
+                } else {
+                    None
+                };
+
                 // Pass `None` as the final argument for the ICC profile
-                heic::encode(img, path, compression, p.quality, exif, None)
+                heic::encode(img, path, compression, p.quality, exif, icc_profile)
                     .with_context(|| format!("HEIC encode failed for {}", path.display()))?;
             }
             "jpg" | "jpeg" => {

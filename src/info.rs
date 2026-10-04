@@ -208,13 +208,25 @@ pub fn format_info(file: &Path) -> String {
     // Decode image to get dimensions and technical details
     let raw_bytes = std::fs::read(file).unwrap_or_default();
     let (img, img_details) = if is_heic_file {
+        let is_monochrome = heic::is_monochrome(file).unwrap_or(false);
+
         if let Ok((decoded_img, _, _)) = heic::decode(file) {
-            let details = exif::get_image_details(decoded_img.color(), "HEIC", &raw_bytes);
+            let details = exif::get_image_details_with_grayscale(
+                decoded_img.color(),
+                "HEIC",
+                &raw_bytes,
+                is_monochrome,
+            );
             (Some(decoded_img), details)
         } else {
             (
                 None,
-                exif::get_image_details(ColorType::Rgb8, "HEIC", &raw_bytes),
+                exif::get_image_details_with_grayscale(
+                    ColorType::Rgb8,
+                    "HEIC",
+                    &raw_bytes,
+                    is_monochrome,
+                ),
             )
         }
     } else {

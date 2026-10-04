@@ -14,11 +14,131 @@ mod tests {
     };
     use bat_img_rs::heic;
     use image::{DynamicImage, GrayImage, RgbImage};
-    use libheif_rs::CompressionFormat;
+    use libheif_rs::{ColorProfile, CompressionFormat, HeifContext};
     use std::path::Path;
     use tempfile::tempdir;
 
     const HEIC_FIXTURE: &str = "tests/fixtures/src.heic";
+
+    #[test]
+    fn gray_gamma_22_icc_is_valid() {
+        let icc = heic::gray_gamma_22_icc_profile();
+        assert!(
+            icc.len() >= 128,
+            "ICC profile is too small: {} bytes",
+            icc.len()
+        );
+
+        let profile = lcms2::Profile::new_icc(icc).expect("embedded ICC profile must be valid");
+        assert_eq!(
+            profile.color_space(),
+            lcms2::ColorSpaceSignature::GrayData,
+            "ICC profile must be GRAY"
+        );
+        assert!(
+            profile.has_tag(lcms2::TagSignature::GrayTRCTag),
+            "ICC profile must contain GrayTRC"
+        );
+    }
+
+    #[test]
+    fn grayscale_heic_has_gray_gamma_22_icc() -> anyhow::Result<()> {
+        use image::{DynamicImage, GrayImage, Luma};
+
+        let dir = tempfile::tempdir()?;
+        let output = dir.path().join("gray.heic");
+
+        let image = GrayImage::from_pixel(16, 16, Luma([128]));
+        let image = DynamicImage::ImageLuma8(image);
+
+        let icc = heic::gray_gamma_22_icc_profile();
+
+        heic::encode(
+            &image,
+            &output,
+            libheif_rs::CompressionFormat::Hevc,
+            Some(90),
+            None,
+            Some(icc),
+        )?;
+
+        let ctx = HeifContext::read_from_file(
+            output.to_str().expect("temporary HEIC path must be UTF-8"),
+        )?;
+
+        let handle = ctx.primary_image_handle()?;
+
+        // Verify that libheif recognizes the image as monochrome.
+        assert_eq!(
+            handle.preferred_decoding_colorspace()?,
+            libheif_rs::ColorSpace::Monochrome,
+            "grayscale HEIC should decode as Monochrome"
+        );
+
+        // Get the embedded ICC profile.
+        let raw_profile = handle
+            .color_profile_raw()
+            .ok_or_else(|| anyhow::anyhow!("HEIC does not contain an ICC profile"))?;
+
+        // ColorProfile::profile_type() is a trait method.
+        assert_eq!(
+            raw_profile.profile_type(),
+            libheif_rs::color_profile_types::PROF
+        );
+
+        // ColorProfileRaw contains the actual ICC bytes in .data.
+        assert!(
+            !raw_profile.data.is_empty(),
+            "embedded ICC profile must not be empty"
+        );
+
+        // lcms2 parses the raw ICC bytes.
+        let profile = lcms2::Profile::new_icc(&raw_profile.data)
+            .map_err(|e| anyhow::anyhow!("invalid embedded ICC profile: {e:?}"))?;
+
+        // Verify this is a grayscale ICC profile.
+        assert_eq!(
+            profile.color_space(),
+            lcms2::ColorSpaceSignature::GrayData,
+            "embedded ICC profile must be GRAY"
+        );
+
+        // Verify that it has a grayscale tone-response curve.
+        assert!(
+            profile.has_tag(lcms2::TagSignature::GrayTRCTag),
+            "embedded ICC profile must contain GrayTRC"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn grayscale_heic_is_detected_as_monochrome() -> anyhow::Result<()> {
+        use image::{DynamicImage, GrayImage, Luma};
+        use libheif_rs::CompressionFormat;
+
+        let dir = tempfile::tempdir()?;
+        let file = dir.path().join("gray.heic");
+
+        let image = GrayImage::from_pixel(16, 16, Luma([128]));
+        let image = DynamicImage::ImageLuma8(image);
+
+        heic::encode(
+            &image,
+            &file,
+            CompressionFormat::Hevc,
+            Some(90),
+            None,
+            Some(heic::gray_gamma_22_icc_profile()),
+        )?;
+
+        assert!(
+            heic::is_monochrome(&file)?,
+            "encoded grayscale HEIC must be Monochrome"
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn heic_decode_provides_dimensions_and_color_type() {

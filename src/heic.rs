@@ -162,6 +162,18 @@ pub fn decode(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>, HeicMeta)> 
     Ok((img, exif_bytes, meta))
 }
 
+pub fn is_monochrome(file: &Path) -> Result<bool> {
+    let ctx = HeifContext::read_from_file(file.to_str().context("HEIC path is not valid UTF-8")?)?;
+
+    let handle = ctx.primary_image_handle()?;
+
+    Ok(handle.preferred_decoding_colorspace()? == ColorSpace::Monochrome)
+}
+
+pub fn gray_gamma_22_icc_profile() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/gray_gamma_22.icc"))
+}
+
 /// Encode a [`DynamicImage`] as a HEIC/HEIF file at `path`.
 ///
 /// - `compression` — use the same codec as the source file (HEVC, AV1, …)
